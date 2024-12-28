@@ -1,0 +1,25 @@
+{
+  "configurations" : [
+    {
+      "id" : "99DC7091-27EC-4A3F-A7BD-8C9B9DBF04DF",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "MapKitSwiftSearchTests",
+        "name" : "MapKitSwiftSearchTests"
+      }
+    }
+  ],
+  "version" : 1
+}
