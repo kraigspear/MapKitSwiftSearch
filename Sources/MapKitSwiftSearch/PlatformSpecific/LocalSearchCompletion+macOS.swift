@@ -1,18 +1,30 @@
 //
-//  LocalSearchCompletion+iOS.swift
+//  LocalSearchCompletion+macOS.swift
 //  MapKitSwiftSearch
 //
 //  Created by Kraig Spear on 12/27/24.
 //
 
-#if os(iOS)
-import UIKit
+#if os(macOS)
+import AppKit
 public extension LocalSearchCompletion {
-    func highlightedTitle(
-        foregroundColor: UIColor = .lightGray,
-        highlightColor: UIColor = .white
+    
+    public func highlightedTitle(
+        foregroundColor: NSColor = .lightGray,
+        highlightColor: NSColor = .white
     ) -> AttributedString {
         highlightedText(from: title,
+                        highlightRange: titleHighlightRange,
+                        foregroundColor: foregroundColor,
+                        highlightColor: highlightColor
+        )
+    }
+    
+    public func highlightedSubTitle(
+        foregroundColor: NSColor = .lightGray,
+        highlightColor: NSColor = .white
+    ) -> AttributedString {
+        highlightedText(from: subTitle,
                         highlightRange: titleHighlightRange,
                         foregroundColor: foregroundColor,
                         highlightColor: highlightColor
@@ -22,8 +34,8 @@ public extension LocalSearchCompletion {
     private func highlightedText(
         from text: String,
         highlightRange: HighlightRange?,
-        foregroundColor: UIColor,
-        highlightColor: UIColor
+        foregroundColor: NSColor,
+        highlightColor: NSColor
     ) -> AttributedString {
         // Set initial foreground color
         var attributedString = AttributedString(text)

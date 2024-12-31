@@ -7,6 +7,10 @@
 
 import MapKit
 
+/**
+ A sendable version of ``MKLocalSearchCompletion`` with the added capability of providing a
+ AttributedString for title / subtitle
+ */
 public struct LocalSearchCompletion: Identifiable, Equatable, Sendable, Hashable, CustomStringConvertible {
     public let id: String
     public let title: String
