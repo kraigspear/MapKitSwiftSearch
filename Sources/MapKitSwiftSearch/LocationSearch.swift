@@ -6,19 +6,33 @@ import Observation
 import os
 
 /// An error that occurs during location search operations.
-public enum LocationSearchError: LocalizedError {
+public enum LocationSearchError: LocalizedError, Equatable {
     /// Indicates that the search completion operation failed.
     case searchCompletionFailed
     
     /// MapKit thrown error
     case mapKitError(MKError)
     
+    /// Empty, not enough characters
+    case invalidSearchCriteria
+    
+    /// Searching the same text twice in a row
+    case duplicateSearchCriteria
+
+    case debounce
+
     public var errorDescription: String? {
         switch self {
         case .searchCompletionFailed:
             return "Unable to complete location search"
         case let .mapKitError(mkError):
             return "MapKit error: \(mkError)"
+        case .invalidSearchCriteria:
+            return "Search criteria must meet minimum character requirements"
+        case .duplicateSearchCriteria:
+            return "Search criteria cannot be repeated"
+        case .debounce:
+            return "Debounced"
         }
     }
 }
@@ -34,6 +48,9 @@ private let logger = LogContext.locationSearch.logger()
 /// - Ensures thread safety through `@MainActor` attribution
 /// - Returns `Sendable` compliant search results for safe concurrent operations
 ///
+/// This class is particularly useful for applications that need to provide real-time
+/// location search suggestions as users type, such as address lookup or point of interest search.
+///
 /// Example usage:
 /// ```swift
 /// let searcher = LocationSearch()
@@ -43,13 +60,6 @@ private let logger = LogContext.locationSearch.logger()
 /// } catch {
 ///     // Handle errors
 /// }
-/// ```
-///
-/// - Note: This implementation transforms MapKit's delegate-based API into a more
-///         modern Swift interface, eliminating callback hell and improving code readability.
-///
-/// - Important: This class is marked with `@MainActor` to ensure all UI updates happen
-///              on the main thread, maintaining thread safety when updating UI based on results.
 @MainActor
 public final class LocationSearch {
     
@@ -57,6 +67,9 @@ public final class LocationSearch {
     
     private let searchCompleter = MKLocalSearchCompleter()
     private let localSearchCompleterHandler = LocalSearchCompleterHandler()
+    
+    private let numberOfCharactersBeforeSearching: Int
+    private let debounceSearchDelay: Duration
     
     /// Creates a new location search instance with customizable search behavior.
     ///
@@ -73,9 +86,18 @@ public final class LocationSearch {
     /// // Create with custom minimum character count
     /// let customSearcher = LocationSearch(numberOfCharactersBeforeSearching: 3)
     /// ```
-    public init() {
+    public init(numberOfCharactersBeforeSearching: Int = 5,
+                debounceSearchDelay: Duration = .milliseconds(300)) {
+        self.numberOfCharactersBeforeSearching = numberOfCharactersBeforeSearching
+        self.debounceSearchDelay = debounceSearchDelay
         self.searchCompleter.delegate = localSearchCompleterHandler
     }
+    
+    private typealias SearchTask = Task<[LocalSearchCompletion], Error>
+    private var currentSearchTask: SearchTask?
+    private var debounceTask: Task<Bool, Never>?
+    
+    private var lastSearchQuery: String?
     
     /// Performs an asynchronous location search based on the provided query fragment.
     ///
@@ -93,31 +115,73 @@ public final class LocationSearch {
     ///         or equal to `numberOfCharactersBeforeSearching`.
     public func search(queryFragment: String) async throws -> [LocalSearchCompletion] {
         
+        debounceTask?.cancel()
+        
+        debounceTask = Task {
+            do {
+                logger.debug("Starting debounce")
+                try await Task.sleep(for: debounceSearchDelay)
+                logger.debug("Completed debounce")
+                return true
+            } catch {
+                logger.debug("debounce cancelled")
+                return false
+            }
+        }
+        
+        guard let debounceTask, await debounceTask.value else {
+            throw LocationSearchError.debounce
+        }
+        
+        logger.debug("Pass debounce, starting search")
+        
+        guard lastSearchQuery != queryFragment else {
+            logger.debug("Query hasn't changed not searching")
+            throw LocationSearchError.duplicateSearchCriteria
+        }
+        
+        lastSearchQuery = queryFragment
+        
         guard !queryFragment.isEmpty else {
             logger.debug("Query is empty not searching")
             localSearchCompletions.removeAll()
-            return []
+            return localSearchCompletions
         }
         
-        let completions = try await thenSearch()
-        return completions
+        guard queryFragment.count >= numberOfCharactersBeforeSearching else {
+            logger.debug("Not enough characters to search")
+            throw LocationSearchError.invalidSearchCriteria
+        }
         
-        func thenSearch() async throws -> [LocalSearchCompletion]  {
-            logger.debug("Searching: \(queryFragment)")
-            return try await withCheckedThrowingContinuation { continuation in
-                localSearchCompleterHandler.completionHandler = {result in
-                    switch result {
-                    case .success(let completions):
-                        logger.debug("Successfully searched \(queryFragment)")
-                        continuation.resume(with: .success(completions))
-                    case .failure(let error):
-                        logger.error("failed to search \(queryFragment): \(error)")
-                        continuation.resume(throwing: error)
+        currentSearchTask?.cancel()
+        
+        let task = SearchTask { [searchCompleter] in
+            
+            let completions = try await thenSearch()
+            return completions
+            
+            @MainActor
+            func thenSearch() async throws -> [LocalSearchCompletion]  {
+                logger.debug("Searching: \(queryFragment)")
+                return try await withCheckedThrowingContinuation { continuation in
+                    localSearchCompleterHandler.completionHandler = {result in
+                        switch result {
+                        case .success(let completions):
+                            logger.debug("Successfully searched \(queryFragment)")
+                            continuation.resume(with: .success(completions))
+                        case .failure(let error):
+                            logger.error("failed to search \(queryFragment): \(error)")
+                            continuation.resume(throwing: error)
+                        }
                     }
+                    searchCompleter.queryFragment = queryFragment
                 }
-                searchCompleter.queryFragment = queryFragment
             }
         }
+        
+        currentSearchTask = task
+        
+        return try await task.value
     }
     
     public func placemark(for searchCompletion: LocalSearchCompletion) async throws -> Placemark? {
