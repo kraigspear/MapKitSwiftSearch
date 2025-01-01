@@ -48,6 +48,7 @@ extension ContentView {
         /// Current search text input
         var searchText: String = "" {
             didSet {
+                let searchText = searchText
                 guard oldValue != searchText else {
                     logger.debug("Duplicate search text: \(searchText), not searching")
                     return

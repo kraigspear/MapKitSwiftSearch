@@ -32,29 +32,7 @@ public struct LocalSearchCompletion: Identifiable, Equatable, Sendable, Hashable
         }
     }
 
-    init(title: String, subtitle: String) {
-        self.title = title
-        subTitle = subtitle
-        id = "\(title)-\(subTitle)"
-        titleHighlightRange = nil
-        subtitleHighlightRange = nil
-    }
-
     public var description: String {
         "LocalSearchCompletion(\(title), \(subTitle))"
     }
 }
-
-#if DEBUG
-
-    extension LocalSearchCompletion {
-        static func caledonia() -> Self {
-            .init(title: "Caledonia, MI", subtitle: "A city in Michigan")
-        }
-
-        static func cupertino() -> Self {
-            .init(title: "Cupertino, CA", subtitle: "Location of Apple")
-        }
-    }
-
-#endif
