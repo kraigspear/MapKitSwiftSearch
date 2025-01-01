@@ -1,0 +1,4 @@
+project: TestApp.xcodeproj
+retain_public: true
+schemes:
+- TestApp
