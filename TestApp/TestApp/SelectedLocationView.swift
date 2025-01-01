@@ -9,11 +9,10 @@ import MapKit
 import SwiftUI
 
 struct SelectedLocationView: View {
-    
     let model: ContentView.Model
-    
+
     var body: some View {
-        @Bindable var model = self.model
+        @Bindable var model = model
         Map(position: $model.mapCameraPosition) {
             if let placemark = model.selectedPlacemark, let name = placemark.name {
                 Marker(
@@ -21,7 +20,6 @@ struct SelectedLocationView: View {
                     coordinate: placemark.coordinate
                 )
             }
-            
         }
         .edgesIgnoringSafeArea(.all)
     }

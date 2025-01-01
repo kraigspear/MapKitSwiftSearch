@@ -8,32 +8,32 @@
 import MapKit
 
 public struct Placemark: Sendable, Equatable, Hashable {
-    public let coordinate: CLLocationCoordinate2D  // Non-optional, matches MKPlacemark
+    public let coordinate: CLLocationCoordinate2D // Non-optional, matches MKPlacemark
     public let name: String?
-    public let thoroughfare: String?          // Street address
-    public let subThoroughfare: String?       // Building number
-    public let locality: String?              // City
-    public let subLocality: String?           // Neighborhood
-    public let administrativeArea: String?    // State
+    public let thoroughfare: String? // Street address
+    public let subThoroughfare: String? // Building number
+    public let locality: String? // City
+    public let subLocality: String? // Neighborhood
+    public let administrativeArea: String? // State
     public let subAdministrativeArea: String? // County
     public let postalCode: String?
     public let countryCode: String?
     public let countryName: String?
-    
+
     public init(placemark: MKPlacemark) {
-        self.coordinate = placemark.coordinate  // This is guaranteed to exist
-        self.name = placemark.name
-        self.thoroughfare = placemark.thoroughfare
-        self.subThoroughfare = placemark.subThoroughfare
-        self.locality = placemark.locality
-        self.subLocality = placemark.subLocality
-        self.administrativeArea = placemark.administrativeArea
-        self.subAdministrativeArea = placemark.subAdministrativeArea
-        self.postalCode = placemark.postalCode
-        self.countryCode = placemark.countryCode
-        self.countryName = placemark.country
+        coordinate = placemark.coordinate // This is guaranteed to exist
+        name = placemark.name
+        thoroughfare = placemark.thoroughfare
+        subThoroughfare = placemark.subThoroughfare
+        locality = placemark.locality
+        subLocality = placemark.subLocality
+        administrativeArea = placemark.administrativeArea
+        subAdministrativeArea = placemark.subAdministrativeArea
+        postalCode = placemark.postalCode
+        countryCode = placemark.countryCode
+        countryName = placemark.country
     }
-    
+
     // Convert back to MKPlacemark if needed
     public func toMKPlacemark() -> MKPlacemark {
         MKPlacemark(
@@ -48,28 +48,30 @@ public struct Placemark: Sendable, Equatable, Hashable {
                 "subAdministrativeArea": subAdministrativeArea as Any,
                 "postalCode": postalCode as Any,
                 "countryCode": countryCode as Any,
-                "country": countryName as Any
+                "country": countryName as Any,
             ]
         )
     }
-    
+
     // MARK: - Equatable
+
     public static func == (lhs: Placemark, rhs: Placemark) -> Bool {
         lhs.coordinate.latitude == rhs.coordinate.latitude &&
-        lhs.coordinate.longitude == rhs.coordinate.longitude &&
-        lhs.name == rhs.name &&
-        lhs.thoroughfare == rhs.thoroughfare &&
-        lhs.subThoroughfare == rhs.subThoroughfare &&
-        lhs.locality == rhs.locality &&
-        lhs.subLocality == rhs.subLocality &&
-        lhs.administrativeArea == rhs.administrativeArea &&
-        lhs.subAdministrativeArea == rhs.subAdministrativeArea &&
-        lhs.postalCode == rhs.postalCode &&
-        lhs.countryCode == rhs.countryCode &&
-        lhs.countryName == rhs.countryName
+            lhs.coordinate.longitude == rhs.coordinate.longitude &&
+            lhs.name == rhs.name &&
+            lhs.thoroughfare == rhs.thoroughfare &&
+            lhs.subThoroughfare == rhs.subThoroughfare &&
+            lhs.locality == rhs.locality &&
+            lhs.subLocality == rhs.subLocality &&
+            lhs.administrativeArea == rhs.administrativeArea &&
+            lhs.subAdministrativeArea == rhs.subAdministrativeArea &&
+            lhs.postalCode == rhs.postalCode &&
+            lhs.countryCode == rhs.countryCode &&
+            lhs.countryName == rhs.countryName
     }
-    
+
     // MARK: - Hashable
+
     public func hash(into hasher: inout Hasher) {
         hasher.combine(coordinate.latitude)
         hasher.combine(coordinate.longitude)

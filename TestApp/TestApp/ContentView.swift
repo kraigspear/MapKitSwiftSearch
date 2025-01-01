@@ -14,26 +14,25 @@ import SwiftUI
 /// - Location selection
 /// - Map visualization
 struct ContentView: View {
-    
     // MARK: - Properties
-    
+
     /// The view model that manages the state and business logic
     @State private var model = Model()
-    
+
     // MARK: - Body
-    
+
     var body: some View {
         #if os(macOS)
-        searchView_macOS
-            .colorScheme(.dark)
+            searchView_macOS
+                .colorScheme(.dark)
         #else
-        searchView_iOS
-            .colorScheme(.dark)
+            searchView_iOS
+                .colorScheme(.dark)
         #endif
     }
-    
+
     // MARK: - Platform-Specific Views
-    
+
     /// The iOS-specific implementation of the search interface.
     ///
     /// This view provides a full-screen navigation-based interface with:
@@ -44,7 +43,7 @@ struct ContentView: View {
         NavigationStack {
             List(selection: $model.selectedCompletion) {
                 ForEach(model.searchResults, id: \.self) { result in
-                    NavigationLink(destination: SelectedLocationView(model: model))  {
+                    NavigationLink(destination: SelectedLocationView(model: model)) {
                         LocationRow(location: result)
                             .tag(result)
                             .environment(model)
@@ -53,7 +52,7 @@ struct ContentView: View {
             }.navigationTitle("Location Search")
         }.searchable(text: $model.searchText, prompt: "Cities and Places of Interest")
     }
-    
+
     /// The macOS-specific implementation of the search interface.
     ///
     /// This view provides a split-view interface with:
@@ -70,7 +69,7 @@ struct ContentView: View {
             }.frame(minWidth: 150)
                 .navigationTitle("Locations")
                 .searchable(text: $model.searchText, prompt: "Cities and Places of Interest")
-            
+
             if model.selectedPlacemark != nil {
                 SelectedLocationView(model: model)
             } else {
@@ -80,21 +79,21 @@ struct ContentView: View {
             }
         }.frame(minWidth: 400, minHeight: 300)
     }
-    
+
     // MARK: - LocationRow
-    
+
     /// A view that displays a single location search result.
     ///
     /// LocationRow provides a consistent format for displaying location search results,
     /// showing both the main title and subtitle with appropriate styling.
     private struct LocationRow: View {
         // MARK: Properties
-        
+
         /// The location completion data to display
         let location: LocalSearchCompletion
-        
+
         // MARK: Body
-        
+
         var body: some View {
             VStack {
                 Text(location.highlightedTitle())

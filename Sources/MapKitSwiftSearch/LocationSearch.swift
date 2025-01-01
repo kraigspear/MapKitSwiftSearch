@@ -9,13 +9,13 @@ import os
 public enum LocationSearchError: LocalizedError, Equatable {
     /// Indicates that the search completion operation failed.
     case searchCompletionFailed
-    
+
     /// MapKit thrown error
     case mapKitError(MKError)
-    
+
     /// Empty, not enough characters
     case invalidSearchCriteria
-    
+
     /// Searching the same text twice in a row
     case duplicateSearchCriteria
 
@@ -24,15 +24,15 @@ public enum LocationSearchError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .searchCompletionFailed:
-            return "Unable to complete location search"
+            "Unable to complete location search"
         case let .mapKitError(mkError):
-            return "MapKit error: \(mkError)"
+            "MapKit error: \(mkError)"
         case .invalidSearchCriteria:
-            return "Search criteria must meet minimum character requirements"
+            "Search criteria must meet minimum character requirements"
         case .duplicateSearchCriteria:
-            return "Search criteria cannot be repeated"
+            "Search criteria cannot be repeated"
         case .debounce:
-            return "Debounced"
+            "Debounced"
         }
     }
 }
@@ -62,15 +62,14 @@ private let logger = LogContext.locationSearch.logger()
 /// }
 @MainActor
 public final class LocationSearch {
-    
     private var localSearchCompletions: [LocalSearchCompletion] = []
-    
+
     private let searchCompleter = MKLocalSearchCompleter()
     private let localSearchCompleterHandler = LocalSearchCompleterHandler()
-    
+
     private let numberOfCharactersBeforeSearching: Int
     private let debounceSearchDelay: Duration
-    
+
     /// Creates a new location search instance with customizable search behavior.
     ///
     /// - Parameter numberOfCharactersBeforeSearching: The minimum number of characters required
@@ -90,15 +89,15 @@ public final class LocationSearch {
                 debounceSearchDelay: Duration = .milliseconds(300)) {
         self.numberOfCharactersBeforeSearching = numberOfCharactersBeforeSearching
         self.debounceSearchDelay = debounceSearchDelay
-        self.searchCompleter.delegate = localSearchCompleterHandler
+        searchCompleter.delegate = localSearchCompleterHandler
     }
-    
+
     private typealias SearchTask = Task<[LocalSearchCompletion], Error>
     private var currentSearchTask: SearchTask?
     private var debounceTask: Task<Bool, Never>?
-    
+
     private var lastSearchQuery: String?
-    
+
     /// Performs an asynchronous location search based on the provided query fragment.
     ///
     /// This method uses MapKit's local search completion to find matching locations
@@ -114,9 +113,8 @@ public final class LocationSearch {
     /// - Note: The search will only be performed if the query fragment length is greater than
     ///         or equal to `numberOfCharactersBeforeSearching`.
     public func search(queryFragment: String) async throws -> [LocalSearchCompletion] {
-        
         debounceTask?.cancel()
-        
+
         debounceTask = Task {
             do {
                 logger.debug("Starting debounce")
@@ -128,48 +126,48 @@ public final class LocationSearch {
                 return false
             }
         }
-        
+
         guard let debounceTask, await debounceTask.value else {
             throw LocationSearchError.debounce
         }
-        
+
         logger.debug("Pass debounce, starting search")
-        
+
         guard lastSearchQuery != queryFragment else {
             logger.debug("Query hasn't changed not searching")
             throw LocationSearchError.duplicateSearchCriteria
         }
-        
+
         lastSearchQuery = queryFragment
-        
+
         guard !queryFragment.isEmpty else {
             logger.debug("Query is empty not searching")
             localSearchCompletions.removeAll()
             return localSearchCompletions
         }
-        
+
         guard queryFragment.count >= numberOfCharactersBeforeSearching else {
             logger.debug("Not enough characters to search")
             throw LocationSearchError.invalidSearchCriteria
         }
-        
+
         currentSearchTask?.cancel()
-        
+
         let task = SearchTask { [searchCompleter] in
-            
+
             let completions = try await thenSearch()
             return completions
-            
+
             @MainActor
-            func thenSearch() async throws -> [LocalSearchCompletion]  {
+            func thenSearch() async throws -> [LocalSearchCompletion] {
                 logger.debug("Searching: \(queryFragment)")
                 return try await withCheckedThrowingContinuation { continuation in
-                    localSearchCompleterHandler.completionHandler = {result in
+                    localSearchCompleterHandler.completionHandler = { result in
                         switch result {
-                        case .success(let completions):
+                        case let .success(completions):
                             logger.debug("Successfully searched \(queryFragment)")
                             continuation.resume(with: .success(completions))
-                        case .failure(let error):
+                        case let .failure(error):
                             logger.error("failed to search \(queryFragment): \(error)")
                             continuation.resume(throwing: error)
                         }
@@ -178,17 +176,17 @@ public final class LocationSearch {
                 }
             }
         }
-        
+
         currentSearchTask = task
-        
+
         return try await task.value
     }
-    
+
     public func placemark(for searchCompletion: LocalSearchCompletion) async throws -> Placemark? {
         try await withCheckedThrowingContinuation { continuation in
-            
+
             let localSearch = searchCompletion.localSearch()
-            
+
             localSearch.start { response, error in
                 if let error {
                     if let mkError = error as? MKError {
@@ -205,7 +203,7 @@ public final class LocationSearch {
                     continuation.resume(throwing: LocationSearchError.searchCompletionFailed)
                     return
                 }
-                
+
                 guard let placemark = response.mapItems.first?.placemark else {
                     // Another invalid state, success but nothing returned
                     logger.error("Placemark was expected \(searchCompletion)")
@@ -226,23 +224,22 @@ public final class LocationSearch {
 /// the delegate callbacks into a more Swift-friendly completion handler pattern.
 private final class LocalSearchCompleterHandler: NSObject, MKLocalSearchCompleterDelegate {
     var completionHandler: ((Result<[LocalSearchCompletion], Error>) -> Void)?
-    
-    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter)  {
+
+    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
         let mappedResults = completer.results.map { LocalSearchCompletion($0) }
         completionHandler?(.success(mappedResults))
     }
-    
+
     func completer(_: MKLocalSearchCompleter, didFailWithError error: Error) {
         logger.error("didFailWithError: \(error)")
         completionHandler?(.failure(LocationSearchError.searchCompletionFailed))
     }
 }
 
-
 private extension LocalSearchCompletion {
     func localSearch() -> MKLocalSearch {
         let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery =  "\(title) \(subTitle)".trimmingCharacters(in: .whitespaces)
+        request.naturalLanguageQuery = "\(title) \(subTitle)".trimmingCharacters(in: .whitespaces)
         return .init(request: request)
     }
 }
