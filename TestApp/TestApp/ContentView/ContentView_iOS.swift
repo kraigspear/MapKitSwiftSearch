@@ -6,7 +6,6 @@
 //
 
 import MapKit
-import MapKitSwiftSearch
 import SwiftUI
 
 /// iOS-specific implementation of the location search interface.
@@ -16,10 +15,9 @@ import SwiftUI
 /// - Navigation to detailed location views
 /// - Integrated search functionality
 struct ContentView_iOS: View {
-    
     /// The shared view model
     @Bindable var model: ContentView.Model
-    
+
     var body: some View {
         NavigationStack {
             List(selection: $model.selectedCompletion) {

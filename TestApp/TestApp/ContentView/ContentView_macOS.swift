@@ -6,7 +6,6 @@
 //
 
 import MapKit
-import MapKitSwiftSearch
 import SwiftUI
 
 /// macOS-specific implementation of the location search interface.
@@ -16,10 +15,9 @@ import SwiftUI
 /// - A main content area showing the selected location
 /// - Minimum size constraints for proper display
 struct ContentView_macOS: View {
-    
     /// The shared view model
     @Bindable var model: ContentView.Model
-    
+
     var body: some View {
         NavigationView {
             List(selection: $model.selectedCompletion) {

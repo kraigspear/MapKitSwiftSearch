@@ -1,5 +1,4 @@
 import MapKit
-import MapKitSwiftSearch
 import os
 import SwiftUI
 
@@ -23,10 +22,10 @@ struct ContentView: View {
 
     var body: some View {
         #if os(macOS)
-        ContentView_macOS(model: model)
+            ContentView_macOS(model: model)
                 .colorScheme(.dark)
         #else
-        ContentView_iOS(model: model)
+            ContentView_iOS(model: model)
                 .colorScheme(.dark)
         #endif
     }

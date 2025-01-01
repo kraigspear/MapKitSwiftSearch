@@ -24,15 +24,15 @@ import SwiftUI
 ///   a selected placemark to display the marker.
 struct SelectedLocationView: View {
     // MARK: - Properties
-    
+
     /// The view model containing the selected location and map state
     let model: ContentView.Model
-    
+
     // MARK: - Body
-    
+
     var body: some View {
         @Bindable var model = model
-        
+
         Map(position: $model.mapCameraPosition) {
             // Only show marker if we have a valid placemark with a name
             if let placemark = model.selectedPlacemark,
