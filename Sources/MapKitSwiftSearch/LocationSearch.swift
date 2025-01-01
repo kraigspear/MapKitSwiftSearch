@@ -160,8 +160,6 @@ public final class LocationSearch {
 
             @MainActor
             func thenSearch() async throws -> [LocalSearchCompletion] {
-                logger.debug("Searching: \(queryFragment)")
-                localSearchCompleterHandler.reset()
                 return try await withCheckedThrowingContinuation { continuation in
                     localSearchCompleterHandler.completionHandler = { result in
                         switch result {
@@ -173,7 +171,13 @@ public final class LocationSearch {
                             continuation.resume(throwing: error)
                         }
                     }
-                    searchCompleter.queryFragment = queryFragment
+                    // It's possible to get in a race condition with cached results.
+                    // By assigning on the next run loop, we insure the query isn't started
+                    // until the completion handler has been setup
+                    Task { @MainActor in
+                        logger.debug("Searching: \(queryFragment)")
+                        searchCompleter.queryFragment = queryFragment
+                    }
                 }
             }
         }
@@ -225,33 +229,16 @@ public final class LocationSearch {
 /// the delegate callbacks into a more Swift-friendly completion handler pattern.
 private final class LocalSearchCompleterHandler: NSObject, MKLocalSearchCompleterDelegate {
     
-    private var isHandled = false
-    
     var completionHandler: ((Result<[LocalSearchCompletion], Error>) -> Void)?
 
     func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        guard !isHandled else {
-            logger.debug("Search already handled")
-            return
-        }
-        isHandled = true
         let mappedResults = completer.results.map { LocalSearchCompletion($0) }
         completionHandler?(.success(mappedResults))
     }
 
     func completer(_: MKLocalSearchCompleter, didFailWithError error: Error) {
-        guard !isHandled else {
-            logger.debug("Search already handled")
-            return
-        }
-        isHandled = true
         logger.error("didFailWithError: \(error)")
         completionHandler?(.failure(LocationSearchError.searchCompletionFailed))
-    }
-    
-    func reset() {
-        isHandled = false
-        completionHandler = nil
     }
 }
 

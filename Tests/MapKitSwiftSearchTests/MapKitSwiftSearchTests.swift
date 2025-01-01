@@ -60,6 +60,34 @@ struct LocationSearchTest {
                 _ = try await locationSearch.search(queryFragment: "S")
             }
         }
+        
+        @Test("Sending the same query twice, throws error")
+        func sendSameQueryTwice() async throws {
+            let locationSearch = LocationSearch()
+            _ = try await locationSearch.search(queryFragment: "Pensacola, FL")
+            
+            await #expect(throws: LocationSearchError.duplicateSearchCriteria) {
+                _ = try await locationSearch.search(queryFragment: "Pensacola, FL")
+            }
+        }
+        
+        @Test("Two searches previous gets debounce error")
+        func debounce() async throws {
+            let locationSearch = LocationSearch()
+            
+            let task1 = Task {
+                await #expect(throws: LocationSearchError.debounce) {
+                    _ = try await locationSearch.search(queryFragment: "Pensacola, FL")
+                }
+            }
+            
+            let task2 = Task {
+                _ = try await locationSearch.search(queryFragment: "Sheridan, In")
+            }
+            
+            await task1.value
+            try await task2.value
+        }
     }
 
     @MainActor

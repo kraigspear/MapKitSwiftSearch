@@ -7,21 +7,63 @@
 
 import MapKit
 
+/// A structure that represents a geographic location with associated address information.
+///
+/// `Placemark` provides a lightweight wrapper around `MKPlacemark` that conforms to `Sendable`,
+/// making it safe to pass between concurrent contexts. It stores location coordinates and address
+/// components such as street address, city, state, and country.
+///
+/// Example of creating a Placemark from an MKPlacemark:
+/// ```swift
+/// let mkPlacemark = MKPlacemark(coordinate: coordinate, addressDictionary: addressDict)
+/// let placemark = Placemark(placemark: mkPlacemark)
+/// ```
 public struct Placemark: Sendable, Equatable, Hashable {
-    public let coordinate: CLLocationCoordinate2D // Non-optional, matches MKPlacemark
+    /// The geographic coordinates of the placemark.
+    public let coordinate: CLLocationCoordinate2D
+    
+    /// The name of the placemark, if any.
+    ///
+    /// This might represent a point of interest or landmark name.
     public let name: String?
-    public let thoroughfare: String? // Street address
-    public let subThoroughfare: String? // Building number
-    public let locality: String? // City
-    public let subLocality: String? // Neighborhood
-    public let administrativeArea: String? // State
-    public let subAdministrativeArea: String? // County
+    
+    /// The street name of the address.
+    public let thoroughfare: String?
+    
+    /// The building number or unit number of the address.
+    public let subThoroughfare: String?
+    
+    /// The city name of the address.
+    public let locality: String?
+    
+    /// The neighborhood or district within the city.
+    public let subLocality: String?
+    
+    /// The state or province of the address.
+    public let administrativeArea: String?
+    
+    /// The county within the state.
+    public let subAdministrativeArea: String?
+    
+    /// The postal code (ZIP code in the United States) of the address.
     public let postalCode: String?
+    
+    /// The ISO country code of the address.
+    ///
+    /// This represents the two-letter ISO 3166-1 country code.
     public let countryCode: String?
+    
+    /// The full name of the country.
     public let countryName: String?
 
+    /// Creates a new placemark from an `MKPlacemark` instance.
+    ///
+    /// This initializer copies all relevant address and location data from the provided
+    /// `MKPlacemark` into a new `Placemark` instance.
+    ///
+    /// - Parameter placemark: The `MKPlacemark` instance to copy data from.
     public init(placemark: MKPlacemark) {
-        coordinate = placemark.coordinate // This is guaranteed to exist
+        coordinate = placemark.coordinate
         name = placemark.name
         thoroughfare = placemark.thoroughfare
         subThoroughfare = placemark.subThoroughfare
@@ -34,7 +76,12 @@ public struct Placemark: Sendable, Equatable, Hashable {
         countryName = placemark.country
     }
 
-    // Convert back to MKPlacemark if needed
+    /// Converts this placemark back to an `MKPlacemark` instance.
+    ///
+    /// This method creates a new `MKPlacemark` with all the address components
+    /// and coordinate information from this `Placemark`.
+    ///
+    /// - Returns: A new `MKPlacemark` instance containing the same location and address information.
     public func toMKPlacemark() -> MKPlacemark {
         MKPlacemark(
             coordinate: coordinate,
