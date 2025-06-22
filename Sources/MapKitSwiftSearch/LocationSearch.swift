@@ -1,7 +1,7 @@
 // The Swift Programming Language
 // https://docs.swift.org/swift-book
 
-import MapKit
+@preconcurrency import MapKit
 import Observation
 import os
 
@@ -88,11 +88,6 @@ public final class LocationSearch {
     private var localSearchCompletions: [LocalSearchCompletion] = []
     private let numberOfCharactersBeforeSearching: Int
 
-    // MARK: - Services
-    
-    private let localSearchCompleterHandler = LocalSearchCompleterHandler()
-    private let searchCompleter = MKLocalSearchCompleter()
-
     // MARK: - Tasks
     private typealias SearchTask = Task<[LocalSearchCompletion], Error>
     private var currentSearchTask: SearchTask?
@@ -117,7 +112,6 @@ public final class LocationSearch {
                 debounceSearchDelay: Duration = .milliseconds(300)) {
         self.numberOfCharactersBeforeSearching = numberOfCharactersBeforeSearching
         self.debounceSearchDelay = debounceSearchDelay
-        searchCompleter.delegate = localSearchCompleterHandler
     }
 
     // MARK: - Public Interface
@@ -176,31 +170,43 @@ public final class LocationSearch {
 
         currentSearchTask?.cancel()
 
-        let task = SearchTask { [searchCompleter] in
-
+        let task = SearchTask {
             let completions = try await thenSearch()
             return completions
 
             @MainActor
             func thenSearch() async throws -> [LocalSearchCompletion] {
-                return try await withCheckedThrowingContinuation { continuation in
-                    localSearchCompleterHandler.completionHandler = { result in
-                        switch result {
-                        case let .success(completions):
-                            logger.debug("Successfully searched \(queryFragment)")
-                            continuation.resume(with: .success(completions))
-                        case let .failure(error):
-                            logger.error("failed to search \(queryFragment): \(error)")
-                            continuation.resume(throwing: error)
+                // Create a new completer and handler for each search to avoid continuation conflicts
+                let searchCompleter = MKLocalSearchCompleter()
+                let localSearchCompleterHandler = LocalSearchCompleterHandler()
+                searchCompleter.delegate = localSearchCompleterHandler
+                
+                return try await withTaskCancellationHandler {
+                    try await withCheckedThrowingContinuation { continuation in
+                        // Use a flag to ensure continuation is only called once
+                        var hasResumed = false
+                        
+                        localSearchCompleterHandler.completionHandler = { result in
+                            guard !hasResumed else { return }
+                            hasResumed = true
+                            
+                            switch result {
+                            case let .success(completions):
+                                logger.debug("Successfully searched \(queryFragment)")
+                                continuation.resume(with: .success(completions))
+                            case let .failure(error):
+                                logger.error("failed to search \(queryFragment): \(error)")
+                                continuation.resume(throwing: error)
+                            }
                         }
-                    }
-                    // It's possible to get in a race condition with cached results.
-                    // By assigning on the next run loop, we insure the query isn't started
-                    // until the completion handler has been setup
-                    Task { @MainActor in
+                        
+                        // Start the search
                         logger.debug("Searching: \(queryFragment)")
                         searchCompleter.queryFragment = queryFragment
                     }
+                } onCancel: {
+                    // Cancel the search if the task is cancelled
+                    searchCompleter.cancel()
                 }
             }
         }
