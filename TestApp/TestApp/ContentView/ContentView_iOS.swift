@@ -32,7 +32,7 @@ struct ContentView_iOS: View {
             .navigationTitle("Location Search")
             .searchable(
                 text: $model.searchText,
-                prompt: "Cities and Places of Interest"
+                prompt: "Cities and Places of Interest",
             )
         }
     }

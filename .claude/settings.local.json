@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(git checkout:*)",
+      "Bash(swift test)",
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(git branch:*)",
+      "Bash(swift test:*)",
+      "Bash(cat:*)",
+      "Bash(rm:*)",
+      "Bash(mv:*)",
+      "Bash(mkdir:*)",
+      "Bash(swift build)",
+      "Bash(swiftformat:*)",
+      "Bash(brew list:*)",
+      "Bash(brew install:*)",
+      "Bash(periphery scan:*)"
+    ],
+    "deny": [],
+    "ask": [],
+    "defaultMode": "acceptEdits"
+  }
+}

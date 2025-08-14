@@ -21,38 +21,38 @@ import MapKit
 public struct Placemark: Sendable, Equatable, Hashable {
     /// The geographic coordinates of the placemark.
     public let coordinate: CLLocationCoordinate2D
-    
+
     /// The name of the placemark, if any.
     ///
     /// This might represent a point of interest or landmark name.
     public let name: String?
-    
+
     /// The street name of the address.
     public let thoroughfare: String?
-    
+
     /// The building number or unit number of the address.
     public let subThoroughfare: String?
-    
+
     /// The city name of the address.
     public let locality: String?
-    
+
     /// The neighborhood or district within the city.
     public let subLocality: String?
-    
+
     /// The state or province of the address.
     public let administrativeArea: String?
-    
+
     /// The county within the state.
     public let subAdministrativeArea: String?
-    
+
     /// The postal code (ZIP code in the United States) of the address.
     public let postalCode: String?
-    
+
     /// The ISO country code of the address.
     ///
     /// This represents the two-letter ISO 3166-1 country code.
     public let countryCode: String?
-    
+
     /// The full name of the country.
     public let countryName: String?
 
@@ -96,7 +96,7 @@ public struct Placemark: Sendable, Equatable, Hashable {
                 "postalCode": postalCode as Any,
                 "countryCode": countryCode as Any,
                 "country": countryName as Any,
-            ]
+            ],
         )
     }
 

@@ -30,7 +30,7 @@ struct ContentView_macOS: View {
             .navigationTitle("Locations")
             .searchable(
                 text: $model.searchText,
-                prompt: "Cities and Places of Interest"
+                prompt: "Cities and Places of Interest",
             )
 
             if model.selectedPlacemark != nil {
