@@ -13,7 +13,7 @@ let package = Package(
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "MapKitSwiftSearch",
-            targets: ["MapKitSwiftSearch"]
+            targets: ["MapKitSwiftSearch"],
         ),
     ],
     targets: [
@@ -22,15 +22,15 @@ let package = Package(
         .target(
             name: "MapKitSwiftSearch",
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
-            ]
+                .enableExperimentalFeature("StrictConcurrency"),
+            ],
         ),
         .testTarget(
             name: "MapKitSwiftSearchTests",
             dependencies: ["MapKitSwiftSearch"],
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
-            ]
+                .enableExperimentalFeature("StrictConcurrency"),
+            ],
         ),
-    ]
+    ],
 )

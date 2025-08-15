@@ -106,7 +106,7 @@ extension Placemark {
     func mapCameraPosition() -> MapCameraPosition {
         let region = MKCoordinateRegion(
             center: coordinate,
-            span: MKCoordinateSpan(latitudeDelta: 0.2, longitudeDelta: 0.2)
+            span: MKCoordinateSpan(latitudeDelta: 0.2, longitudeDelta: 0.2),
         )
         return MapCameraPosition.region(region)
     }

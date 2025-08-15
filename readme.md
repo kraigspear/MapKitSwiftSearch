@@ -18,10 +18,10 @@ MapKitSwiftSearch provides a safe and idiomatic Swift interface for location sea
 ```mermaid
 classDiagram
     class LocationSearch {
-        -MKLocalSearchCompleter searchCompleter
-        -LocalSearchCompleterHandler handler
         +search(queryFragment: String) [LocalSearchCompletion]
         +placemark(for: LocalSearchCompletion) Placemark
+        +numberOfCharactersBeforeSearching: Int
+        +debounceSearchDelay: Duration
     }
     
     class LocalSearchCompletion {
@@ -29,6 +29,8 @@ classDiagram
         +String subTitle
         +HighlightRange? titleHighlightRange
         +HighlightRange? subtitleHighlightRange
+        +highlightedTitle() AttributedString
+        +highlightedSubTitle() AttributedString
     }
     
     class Placemark {
@@ -36,10 +38,18 @@ classDiagram
         +String? name
         +String? thoroughfare
         +String? locality
+        +String? administrativeArea
+        +String? country
+    }
+    
+    class HighlightRange {
+        <<Internal>>
+        +toAttributedStringRange() Range
     }
     
     LocationSearch ..> LocalSearchCompletion : creates
     LocationSearch ..> Placemark : creates
+    LocalSearchCompletion ..> HighlightRange : uses
 ```
 
 ## Installation
@@ -50,7 +60,7 @@ Add the following dependency to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/yourusername/MapKitSwiftSearch.git", from: "1.0.0")
+    .package(url: "https://github.com/kraigspear/MapKitSwiftSearch.git", from: "1.0.0")
 ]
 ```
 
@@ -161,10 +171,19 @@ let attributedSubtitle = searchResult.highlightedSubTitle(
 )
 ```
 
+## Documentation
+
+Comprehensive documentation is available:
+- **[DocC Documentation](Sources/MapKitSwiftSearch/Documentation.docc/)** - User guides and API reference
+- **[Architecture & Design](docs/Architecture.md)** - Internal design and implementation details
+- **[Getting Started Guide](docs/Guides/GettingStarted.md)** - Quick start tutorial
+- **[API Reference](docs/Components/)** - Detailed component documentation
+
 ## Requirements
-- iOS 15.0+ / macOS 12.0+
-- Swift 5.9+
-- Xcode 15.0+
+- iOS 26.0+ / macOS 26.0+
+- Swift 6.2+
+- Xcode 16.0+
+- Strict Concurrency enabled
 
 ## Contributing
 Contributions are welcome! Please feel free to submit a Pull Request.

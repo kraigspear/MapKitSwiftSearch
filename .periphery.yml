@@ -1,0 +1,4 @@
+# Periphery Configuration for Swift Package
+retain_public: true
+index_exclude:
+  - "**/.build/**"

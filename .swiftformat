@@ -1,0 +1,7 @@
+# SwiftFormat configuration file
+
+# Swift version
+--swiftversion 6.2
+
+# Rules configuration
+# Keep other rules enabled by default
