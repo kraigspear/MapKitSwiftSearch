@@ -22,11 +22,11 @@ struct ContentView: View {
 
     var body: some View {
         #if os(macOS)
-            ContentView_macOS(model: model)
-                .colorScheme(.dark)
+        ContentView_macOS(model: model)
+            .colorScheme(.dark)
         #else
-            ContentView_iOS(model: model)
-                .colorScheme(.dark)
+        ContentView_iOS(model: model)
+            .colorScheme(.dark)
         #endif
     }
 }

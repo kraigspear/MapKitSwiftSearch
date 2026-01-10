@@ -262,7 +262,6 @@ func searchAndSelect(_ query: String) async {
 ```swift
 private let debounceSearchDelay: Duration
 private var lastSearchQuery: String?
-private var localSearchCompletions: [LocalSearchCompletion] = []
 private let numberOfCharactersBeforeSearching: Int
 
 // Task management
@@ -275,6 +274,7 @@ private var debounceTask: Task<Bool, Never>?
 - **Immutable Configuration**: `debounceSearchDelay` and `numberOfCharactersBeforeSearching` are set at initialization and never change
 - **Minimal Mutable State**: Only `lastSearchQuery` and task references change during operation
 - **Task-Based Cancellation**: Both debouncing and searching use `Task` for clean cancellation semantics
+- **Stateless Results**: Search results are returned directly rather than stored as instance state
 
 ### Search Flow Implementation
 

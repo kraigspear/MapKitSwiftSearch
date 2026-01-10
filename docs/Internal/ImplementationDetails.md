@@ -452,12 +452,12 @@ public final class LocationSearch { }
 // Full descriptive names (actual implementation)
 private let numberOfCharactersBeforeSearching: Int
 private let debounceSearchDelay: Duration
-private var localSearchCompletions: [LocalSearchCompletion] = []
+private var lastSearchQuery: String?
 
 // Not abbreviated names (what we avoided)
 private let minChars: Int
 private let debounceDelay: Duration
-private var completions: [LocalSearchCompletion] = []
+private var lastQuery: String?
 ```
 
 **Why Full Names**:
