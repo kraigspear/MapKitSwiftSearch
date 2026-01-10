@@ -1,10 +1,3 @@
-//
-//  ContentView+Model.swift
-//  TestApp
-//
-//  Created by Kraig Spear on 12/28/24.
-//
-
 import _MapKit_SwiftUI
 import MapKitSwiftSearch
 import Observation

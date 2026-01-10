@@ -1,10 +1,3 @@
-//
-//  SelectedLocationView.swift
-//  MapKitSwiftSearch
-//
-//  Created by Kraig Spear on 12/30/24.
-//
-
 import MapKit
 import SwiftUI
 
@@ -36,8 +29,7 @@ struct SelectedLocationView: View {
         Map(position: $model.mapCameraPosition) {
             // Only show marker if we have a valid placemark with a name
             if let placemark = model.selectedPlacemark,
-               let name = placemark.name
-            {
+               let name = placemark.name {
                 Marker(
                     name,
                     coordinate: placemark.coordinate,

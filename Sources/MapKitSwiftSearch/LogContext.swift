@@ -1,10 +1,3 @@
-//
-//  LogContext.swift
-//  MapKitSwiftSearch
-//
-//  Created by Kraig Spear on 12/26/24.
-//
-
 import os
 
 /// Defines logging contexts for different areas of the MapKitSwiftSearch framework.

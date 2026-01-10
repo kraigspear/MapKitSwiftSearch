@@ -1,10 +1,3 @@
-//
-//  LocalSearchCompletion.swift
-//  MapKitSwiftSearch
-//
-//  Created by Kraig Spear on 12/26/24.
-//
-
 import MapKit
 
 /// A thread-safe representation of a location search completion result.
@@ -93,6 +86,19 @@ public struct LocalSearchCompletion: Identifiable, Equatable, Sendable, Hashable
         subtitleHighlightRange = searchCompletion.subtitleHighlightRanges.first.map {
             HighlightRange(nsValue: $0)
         }
+    }
+
+    init(
+        title: String,
+        subTitle: String,
+        titleHighlightRange: HighlightRange?,
+        subtitleHighlightRange: HighlightRange?,
+    ) {
+        self.title = title
+        self.subTitle = subTitle
+        id = "\(title)-\(subTitle)"
+        self.titleHighlightRange = titleHighlightRange
+        self.subtitleHighlightRange = subtitleHighlightRange
     }
 
     // MARK: - CustomStringConvertible

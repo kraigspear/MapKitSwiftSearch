@@ -64,7 +64,7 @@ The location and length properties are deliberately private to implement the **I
 ### NSRange Initializer
 
 ```swift
-init(nsRange: NSRange)
+public init(nsRange: NSRange)
 ```
 
 #### Purpose
@@ -72,15 +72,15 @@ Creates a `HighlightRange` from a Foundation `NSRange` structure.
 
 #### Implementation
 ```swift
-init(nsRange: NSRange) {
+public init(nsRange: NSRange) {
     location = nsRange.location
     length = nsRange.length
 }
 ```
 
 #### Usage Context
-- **Internal Use**: Called by other initializers within the package
-- **Direct Creation**: Available for test code and internal utilities
+- **Public API**: Available for creating custom highlight ranges
+- **Direct Creation**: Available for test code and custom highlighting scenarios
 - **Validation**: Assumes input `NSRange` is valid (from trusted sources)
 
 ### NSValue Initializer
@@ -122,7 +122,7 @@ titleHighlightRange = searchCompletion.titleHighlightRanges.first.map {
 ### toAttributedStringRange(in:)
 
 ```swift
-func toAttributedStringRange(in attributedString: AttributedString) -> Range<AttributedString.Index>?
+public func toAttributedStringRange(in attributedString: AttributedString) -> Range<AttributedString.Index>?
 ```
 
 This is the primary public interface for `HighlightRange`, providing safe conversion to Swift's modern `AttributedString` range types.
@@ -142,7 +142,7 @@ This is the primary public interface for `HighlightRange`, providing safe conver
 #### Implementation
 
 ```swift
-func toAttributedStringRange(in attributedString: AttributedString) -> Range<AttributedString.Index>? {
+public func toAttributedStringRange(in attributedString: AttributedString) -> Range<AttributedString.Index>? {
     guard let stringRange = Range(asNSRange, in: attributedString) else {
         return nil
     }

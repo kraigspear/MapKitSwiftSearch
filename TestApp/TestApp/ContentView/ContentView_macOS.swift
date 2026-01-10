@@ -1,10 +1,3 @@
-//
-//  ContentView_macOS.swift
-//  TestApp
-//
-//  Created by Kraig Spear on 1/1/25.
-//
-
 import MapKit
 import SwiftUI
 

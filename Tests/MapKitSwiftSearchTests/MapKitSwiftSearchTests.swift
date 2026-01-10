@@ -1,5 +1,5 @@
-@testable import MapKitSwiftSearch
 import Testing
+@testable import MapKitSwiftSearch
 
 @MainActor
 struct LocationSearchTest {
@@ -18,28 +18,23 @@ struct LocationSearchTest {
 
         @Test("If a search is in progress, cancel if we get another search request")
         func multipleSearches() async throws {
-            var cancelCount = 0
-            let locationSearch = LocationSearch()
+            let locationSearch = LocationSearch(debounceSearchDelay: .milliseconds(200))
 
-            async let search1: Void = {
-                do {
+            let search1 = Task {
+                await #expect(throws: LocationSearchError.debounce) {
                     _ = try await locationSearch.search(queryFragment: "Sheridan, In")
-                } catch {
-                    cancelCount += 1
-                    print("task1 cancelled")
                 }
-            }()
+            }
 
-            async let search2: Void = {
-                do {
-                    _ = try await locationSearch.search(queryFragment: "Caledonia, Mi")
-                } catch {
-                    print("task2 cancelled")
-                }
-            }()
+            try await Task.sleep(for: .milliseconds(50))
 
-            _ = await (search1, search2)
-            #expect(cancelCount == 1, "Expected task1 to cancel")
+            do {
+                _ = try await locationSearch.search(queryFragment: "Caledonia, Mi")
+            } catch {
+                print("task2 cancelled")
+            }
+
+            _ = await search1.value
         }
 
         @Test("Results cleared when searching empty query")
@@ -85,7 +80,7 @@ struct LocationSearchTest {
                 _ = try await locationSearch.search(queryFragment: "Sheridan, In")
             }
 
-            await task1.value
+            _ = await task1.value
             try await task2.value
         }
     }
@@ -98,7 +93,10 @@ struct LocationSearchTest {
             let localSearchCompletions = try await locationSearch.search(queryFragment: "Caledonia, Mi")
             #expect(!localSearchCompletions.isEmpty, "Expected results")
 
-            let foundLocation = try #require(localSearchCompletions.first { $0.title == "Caledonia, MI" }, "Didn't find search location")
+            let foundLocation = try #require(
+                localSearchCompletions.first { $0.title == "Caledonia, MI" },
+                "Didn't find search location",
+            )
 
             let placemark = try await locationSearch.placemark(for: foundLocation)
             #expect(placemark != nil, "Expected selection")

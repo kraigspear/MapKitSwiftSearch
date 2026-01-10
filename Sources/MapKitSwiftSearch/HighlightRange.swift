@@ -1,10 +1,3 @@
-//
-//  HighlightRange.swift
-//  MapKitSwiftSearch
-//
-//  Created by Kraig Spear on 12/26/24.
-//
-
 import Foundation
 
 /// Represents a text highlight range for search completion results.
@@ -50,7 +43,7 @@ public struct HighlightRange: Equatable, Sendable, Hashable {
     ///
     /// - Parameter nsRange: The NSRange containing location and length information
     ///                     from MapKit's search completion highlighting.
-    init(nsRange: NSRange) {
+    public init(nsRange: NSRange) {
         location = nsRange.location
         length = nsRange.length
     }
@@ -106,7 +99,7 @@ public struct HighlightRange: Equatable, Sendable, Hashable {
     ///     styledText[range].foregroundColor = .blue
     /// }
     /// ```
-    func toAttributedStringRange(in attributedString: AttributedString) -> Range<AttributedString.Index>? {
+    public func toAttributedStringRange(in attributedString: AttributedString) -> Range<AttributedString.Index>? {
         guard let stringRange = Range(asNSRange, in: attributedString) else {
             return nil
         }
