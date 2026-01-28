@@ -31,6 +31,20 @@ do {
 }
 ```
 
+## Requirements
+
+- iOS 18.0+ or macOS 15.0+
+- Swift 6.2+
+- Xcode 16.0+
+
+## Installation
+
+Add MapKitSwiftSearch to your project using Swift Package Manager:
+
+```
+https://github.com/yourusername/MapKitSwiftSearch
+```
+
 ## Topics
 
 ### Getting Started
@@ -55,22 +69,3 @@ do {
 - ``Placemark``
 - ``HighlightRange``
 - ``LocationSearchError``
-
-## Requirements
-
-- iOS 18.0+ or macOS 15.0+
-- Swift 6.2+
-- Xcode 16.0+
-
-## Installation
-
-Add MapKitSwiftSearch to your project using Swift Package Manager:
-
-```
-https://github.com/yourusername/MapKitSwiftSearch
-```
-
-## See Also
-
-- [MapKit Documentation](https://developer.apple.com/documentation/mapkit)
-- [Swift Concurrency Guide](https://docs.swift.org/swift-book/LanguageGuide/Concurrency.html)
