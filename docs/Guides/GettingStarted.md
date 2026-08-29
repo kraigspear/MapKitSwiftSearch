@@ -19,8 +19,8 @@ dependencies: [
 ### Requirements
 
 - iOS 26.0+ / macOS 26.0+
-- Swift 6.2+
-- Xcode 16.0+
+- Swift 6.4+
+- Xcode 27.0+
 
 ## Basic Usage
 
