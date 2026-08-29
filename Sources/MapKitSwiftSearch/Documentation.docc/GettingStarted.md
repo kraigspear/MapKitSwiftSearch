@@ -244,8 +244,8 @@ Now that you have basic search functionality working, explore these additional c
 
 ## Requirements
 
-- iOS 18.0+ or macOS 15.0+
+- iOS 26.0+ or macOS 26.0+
 - Swift 6.4+
-- Xcode 16.0+
+- Xcode 27.0+
 
 The package uses strict concurrency checking and requires the latest Swift concurrency features for optimal performance and safety.
