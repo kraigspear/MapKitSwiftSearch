@@ -59,7 +59,7 @@ do {
 ## Requirements
 
 - iOS 18.0+ or macOS 15.0+
-- Swift 6.2+
+- Swift 6.4+
 - Xcode 16.0+
 
 ## Installation
