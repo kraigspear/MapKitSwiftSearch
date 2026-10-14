@@ -114,7 +114,7 @@ A MapKit failure throws `LocationSearchError.mapKitError(_:)` with the underlyin
 
 ### Highlight matched text
 
-Each completion carries the ranges MapKit matched against the query. `highlightedTitle()` and `highlightedSubTitle()` return an `AttributedString` with the match drawn in a highlight color:
+Each completion carries the first range MapKit matched in its title and in its subtitle. `highlightedTitle()` and `highlightedSubTitle()` return an `AttributedString` with the match drawn in a highlight color:
 
 ```swift
 import MapKitSwiftSearch
