@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`Sources/MapKitSwiftSearch` holds the library: `LocationSearch` and the `Sendable` value types it returns. UIKit and AppKit specifics live in `Sources/MapKitSwiftSearch/PlatformSpecific/`. Tests live in `Tests/MapKitSwiftSearchTests`. `TestApp/` is a demo app outside the package build. Longer-form documentation is in `docs/` and `Sources/MapKitSwiftSearch/Documentation.docc`.
+`Sources/MapKitSwiftSearch` holds the library: `LocationSearch` and the `Sendable` value types it returns. UIKit and AppKit specifics live in `Sources/MapKitSwiftSearch/PlatformSpecific/`. Tests live in `Tests/MapKitSwiftSearchTests`. `TestApp/` is a demo app outside the package build. User documentation (guides and API reference) lives only in `Sources/MapKitSwiftSearch/Documentation.docc`; `docs/` holds contributor design notes. Write user-facing docs in DocC, never in `docs/`, so there is one copy to keep current.
 
 ## Build, Test, and Development Commands
 Use SwiftPM: `swift build` compiles the package and `swift test` runs the suite on the macOS host. Target a subset with `swift test --filter SomeTests`. `./scan.sh` runs Periphery. Open the package in Xcode with `xed .`.

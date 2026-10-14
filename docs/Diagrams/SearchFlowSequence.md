@@ -15,7 +15,7 @@ sequenceDiagram
     participant DebounceTask
     participant SearchTask
     participant LocalSearchCompleterHandler
-    participant MKLocalSearchCompleter
+    participant MKLocalSearchCompleterAdapter
     
     User->>LocationSearch: search(queryFragment: "Starbucks")
     
@@ -34,32 +34,32 @@ sequenceDiagram
     Note over LocationSearch: Validation phase
     alt Query same as previous
         LocationSearch-->>User: throw .duplicateSearchCriteria
+    end
+    Note over LocationSearch: Cancel in-flight search
+    alt Query is empty
+        LocationSearch-->>User: return []
     else Query too short
         LocationSearch-->>User: throw .invalidSearchCriteria
-    else Query is empty
-        LocationSearch->>LocationSearch: clear results
-        LocationSearch-->>User: return []
     end
     
     Note over LocationSearch: Begin search operation
     LocationSearch->>SearchTask: Create Task { performSearch() }
-    LocationSearch->>LocalSearchCompleterHandler: create new handler
-    LocationSearch->>MKLocalSearchCompleter: create new completer
-    LocationSearch->>MKLocalSearchCompleter: set delegate
+    SearchTask->>MKLocalSearchCompleterAdapter: create via completerFactory
+    SearchTask->>LocalSearchCompleterHandler: create, set as delegate
     
-    SearchTask->>MKLocalSearchCompleter: queryFragment = "Starbucks"
+    SearchTask->>MKLocalSearchCompleterAdapter: queryFragment = "Starbucks"
     
-    Note over MKLocalSearchCompleter: MapKit performs search
-    MKLocalSearchCompleter->>LocalSearchCompleterHandler: completerDidUpdateResults()
-    LocalSearchCompleterHandler->>LocalSearchCompleterHandler: map to LocalSearchCompletion
+    Note over MKLocalSearchCompleterAdapter: MapKit performs search
+    MKLocalSearchCompleterAdapter->>MKLocalSearchCompleterAdapter: map to LocalSearchCompletion
+    MKLocalSearchCompleterAdapter->>LocalSearchCompleterHandler: completerDidUpdateResults(results)
     LocalSearchCompleterHandler->>SearchTask: completion(.success(results))
     SearchTask->>LocationSearch: return results
     LocationSearch-->>User: return [LocalSearchCompletion]
     
     alt MapKit Error
-        MKLocalSearchCompleter->>LocalSearchCompleterHandler: didFailWithError()
-        LocalSearchCompleterHandler->>SearchTask: completion(.failure(error))
-        SearchTask-->>LocationSearch: throw error
+        MKLocalSearchCompleterAdapter->>LocalSearchCompleterHandler: completerDidFail(with: error)
+        LocalSearchCompleterHandler->>SearchTask: completion(.failure(.searchCompletionFailed))
+        SearchTask-->>LocationSearch: throw .searchCompletionFailed
         LocationSearch-->>User: throw .searchCompletionFailed
     end
 ```
@@ -91,8 +91,8 @@ sequenceDiagram
     alt Successful Response
         MapKit->>MKLocalSearch: return MKLocalSearchResponse
         MKLocalSearch->>LocationSearch: callback(response, nil)
-        LocationSearch->>LocationSearch: extract first placemark
-        LocationSearch->>LocationSearch: create Placemark(mkPlacemark)
+        LocationSearch->>LocationSearch: take first map item
+        LocationSearch->>LocationSearch: create Placemark(mapItem:)
         LocationSearch-->>User: return Placemark?
     else MapKit Error
         MapKit->>MKLocalSearch: return MKError
@@ -116,28 +116,30 @@ sequenceDiagram
     participant LocationSearch
     participant SearchTask1
     participant SearchTask2
-    participant MKLocalSearchCompleter1
-    participant MKLocalSearchCompleter2
+    participant Completer1 as MKLocalSearchCompleterAdapter 1
+    participant Completer2 as MKLocalSearchCompleterAdapter 2
     
-    User->>LocationSearch: search("Coff")
-    LocationSearch->>SearchTask1: Create Task { performSearch("Coff") }
-    SearchTask1->>MKLocalSearchCompleter1: create & start search
+    User->>LocationSearch: search("Coffee")
+    LocationSearch->>SearchTask1: Create Task { performSearch("Coffee") }
+    SearchTask1->>Completer1: create & start search
     
     Note over User: User continues typing
-    User->>LocationSearch: search("Coffee")
+    User->>LocationSearch: search("Coffee shop")
+    Note over LocationSearch: Newer call's debounce completes
     LocationSearch->>SearchTask1: cancel()
-    LocationSearch->>SearchTask2: Create Task { performSearch("Coffee") }
+    LocationSearch->>SearchTask2: Create Task { performSearch("Coffee shop") }
     
     Note over SearchTask1: Task cancellation
-    SearchTask1->>MKLocalSearchCompleter1: cancel()
-    SearchTask1-->>LocationSearch: Task cancelled
+    SearchTask1->>Completer1: cancel()
+    SearchTask1-->>LocationSearch: throw CancellationError
+    LocationSearch-->>User: throw CancellationError (first call)
     
-    SearchTask2->>MKLocalSearchCompleter2: create & start search
-    MKLocalSearchCompleter2->>SearchTask2: return results
+    SearchTask2->>Completer2: create & start search
+    Completer2->>SearchTask2: return results
     SearchTask2->>LocationSearch: return results
-    LocationSearch-->>User: return results for "Coffee"
+    LocationSearch-->>User: return results for "Coffee shop"
     
-    Note over LocationSearch: First search never completes
+    Note over LocationSearch: The first call throws CancellationError even if MapKit answered before the cancel landed
 ```
 
 ## Error Handling Flow
@@ -165,12 +167,12 @@ sequenceDiagram
     alt Duplicate query
         Validation-->>LocationSearch: same as last query
         LocationSearch-->>User: throw .duplicateSearchCriteria
-    else Insufficient characters
-        Validation-->>LocationSearch: too short
-        LocationSearch-->>User: throw .invalidSearchCriteria
     else Empty query
         Validation-->>LocationSearch: empty string
         LocationSearch-->>User: return [] (no error)
+    else Insufficient characters
+        Validation-->>LocationSearch: too short
+        LocationSearch-->>User: throw .invalidSearchCriteria
     end
     
     LocationSearch->>SearchTask: performSearch()
@@ -180,13 +182,13 @@ sequenceDiagram
         MapKit-->>SearchTask: return completions
         SearchTask-->>LocationSearch: return results
         LocationSearch-->>User: return [LocalSearchCompletion]
-    else MapKit specific error
-        MapKit-->>SearchTask: throw MKError
-        SearchTask-->>LocationSearch: propagate error
-        LocationSearch-->>User: throw .mapKitError(MKError)
-    else Generic failure
-        SearchTask-->>LocationSearch: unknown error
+    else Completer failure
+        MapKit-->>SearchTask: didFailWithError
+        SearchTask-->>LocationSearch: throw .searchCompletionFailed
         LocationSearch-->>User: throw .searchCompletionFailed
+    else Superseded by a newer call
+        LocationSearch->>SearchTask: cancel()
+        LocationSearch-->>User: throw CancellationError
     end
 ```
 

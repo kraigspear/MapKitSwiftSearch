@@ -65,7 +65,7 @@ func search(queryFragment: String) async throws -> [LocalSearchCompletion] {
 ```
 
 **Why Structured Concurrency**:
-1. **Automatic Cancellation**: Tasks are automatically cancelled when parent contexts end
+1. **Explicit Cancellation**: A newer call cancels the older search through its `Task` handle. These are unstructured tasks, so cancelling the caller's task does not cancel the search
 2. **Clear Ownership**: Task hierarchies make resource ownership explicit
 3. **Type Safety**: Async functions enforce proper error handling at compile time
 4. **Debugging**: Better tooling support for structured concurrency
@@ -122,14 +122,18 @@ class LocationSearch {
 ```swift
 // Actual implementation
 private func performSearch(queryFragment: String) async throws -> [LocalSearchCompletion] {
-    let searchCompleter = MKLocalSearchCompleter()
-    let handler = LocalSearchCompleterHandler()
-    searchCompleter.delegate = handler
-    
+    let searchCompleter = completerFactory() // wraps a new MKLocalSearchCompleter
+    let localSearchCompleterHandler = LocalSearchCompleterHandler()
+    searchCompleter.delegate = localSearchCompleterHandler
+
+    let cancellationState = SearchCancellationState(searchCompleter: searchCompleter)
+
     return try await withTaskCancellationHandler {
         // Search logic
     } onCancel: {
-        searchCompleter.cancel()
+        Task { @MainActor in
+            cancellationState.cancel()
+        }
     }
 }
 ```
@@ -185,7 +189,7 @@ public struct HighlightRange {
     private let location: Int
     private let length: Int
     
-    func toAttributedStringRange(in attributedString: AttributedString) -> Range<AttributedString.Index>?
+    public func toAttributedStringRange(in attributedString: AttributedString) -> Range<AttributedString.Index>?
 }
 ```
 
@@ -246,14 +250,14 @@ public extension LocalSearchCompletion {
 // LocalSearchCompletion+iOS.swift
 #if os(iOS)
 public extension LocalSearchCompletion {
-    func highlightedTitle(foregroundColor: UIColor = .gray, highlightColor: UIColor = .blue) -> AttributedString
+    func highlightedTitle(foregroundColor: UIColor = .lightGray, highlightColor: UIColor = .white) -> AttributedString
 }
 #endif
 
 // LocalSearchCompletion+macOS.swift  
 #if os(macOS)
 public extension LocalSearchCompletion {
-    func highlightedTitle(foregroundColor: NSColor = .gray, highlightColor: NSColor = .blue) -> AttributedString
+    func highlightedTitle(foregroundColor: NSColor = .lightGray, highlightColor: NSColor = .white) -> AttributedString
 }
 #endif
 ```
@@ -267,23 +271,24 @@ public extension LocalSearchCompletion {
 
 ### 6. Debouncing Implementation
 
-**Decision**: Use Task.sleep for debouncing with cancellation support.
+**Decision**: Use Task.sleep for debouncing with cancellation support. The sleep is injected as `debounceSleep` (default `Task.sleep(for:)`) so tests control when a debounce ends.
 
 #### Implementation Details:
 ```swift
 func search(queryFragment: String) async throws -> [LocalSearchCompletion] {
     debounceTask?.cancel()
     
-    debounceTask = Task {
+    let newDebounceTask = Task {
         do {
-            try await Task.sleep(for: debounceSearchDelay)
+            try await debounceSleep(debounceSearchDelay)
             return true
         } catch {
             return false
         }
     }
+    debounceTask = newDebounceTask
     
-    guard let debounceTask, await debounceTask.value else {
+    guard await newDebounceTask.value else {
         throw LocationSearchError.debounce
     }
     
@@ -361,9 +366,16 @@ catch LocationSearchError.invalidSearchCriteria {
 }
 ```
 
+##### CancellationError
+```swift
+// A newer call superseded this search after MapKit started - keep the current results
+catch is CancellationError {
+}
+```
+
 ##### .mapKitError(let mkError)
 ```swift
-// Specific MapKit issues - may be recoverable
+// Thrown by placemark(for:) - MapKit issues that may be recoverable
 catch LocationSearchError.mapKitError(let mkError) {
     switch mkError.code {
     case .networkFailure:
@@ -382,15 +394,20 @@ catch LocationSearchError.mapKitError(let mkError) {
 
 #### Implementation:
 ```swift
-private final class LocalSearchCompleterHandler: NSObject, MKLocalSearchCompleterDelegate {
+private final class LocalSearchCompleterHandler: LocalSearchCompleterDelegate {
     var completionHandler: ((Result<[LocalSearchCompletion], Error>) -> Void)?
-    
-    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        let mappedResults = completer.results.map { LocalSearchCompletion($0) }
-        completionHandler?(.success(mappedResults))
+
+    func completerDidUpdateResults(_ results: [LocalSearchCompletion]) {
+        completionHandler?(.success(results))
+    }
+
+    func completerDidFail(with error: Error) {
+        completionHandler?(.failure(LocationSearchError.searchCompletionFailed))
     }
 }
 ```
+
+The handler never touches MapKit. `MKLocalSearchCompleterAdapter` is the `MKLocalSearchCompleterDelegate`; it maps MapKit's results to `LocalSearchCompletion` and forwards them through the internal `LocalSearchCompleterDelegate` protocol, which lets tests drive the handler with a fake completer.
 
 **Why Separate Handler Class**:
 1. **Delegation Pattern**: Clean separation of delegate responsibilities
@@ -433,7 +450,7 @@ public final class LocationSearch { }
 ```
 
 **Why Value Types for Data Models**:
-1. **Automatic Sendable**: Value types are automatically Sendable if all properties are Sendable
+1. **Explicit Sendable**: Public structs declare `Sendable`, because inference doesn't cross module boundaries; the compiler then checks every stored property
 2. **No Shared State**: Copying prevents data races
 3. **Simple Concurrency**: No need for locks or synchronization
 4. **Memory Safety**: No reference cycles or lifetime management issues
@@ -474,29 +491,55 @@ The package uses a specific pattern for managing async/await continuations safel
 
 ```swift
 private func performSearch(queryFragment: String) async throws -> [LocalSearchCompletion] {
+    // ... create searchCompleter and localSearchCompleterHandler ...
+    let cancellationState = SearchCancellationState(searchCompleter: searchCompleter)
+
     return try await withTaskCancellationHandler {
         try await withCheckedThrowingContinuation { continuation in
-            var hasResumed = false
-            
+            cancellationState.setContinuation(continuation)
+
             localSearchCompleterHandler.completionHandler = { result in
-                guard !hasResumed else { return }
-                hasResumed = true
-                
-                continuation.resume(with: result)
+                Task { @MainActor in
+                    cancellationState.resume(with: result)
+                }
             }
-            
+
             searchCompleter.queryFragment = queryFragment
         }
     } onCancel: {
+        Task { @MainActor in
+            cancellationState.cancel()
+        }
+    }
+}
+
+@MainActor
+private final class SearchCancellationState: @unchecked Sendable {
+    private var hasResumed = false
+    // ... continuation, searchCompleter ...
+
+    func resume(with result: Result<[LocalSearchCompletion], Error>) {
+        guard !hasResumed else { return }
+        hasResumed = true
+        continuation?.resume(with: result)
+    }
+
+    func cancel() {
+        guard !hasResumed else {
+            searchCompleter.cancel()
+            return
+        }
+        hasResumed = true
+        continuation?.resume(throwing: CancellationError())
         searchCompleter.cancel()
     }
 }
 ```
 
 **Key Safety Features**:
-- **hasResumed Guard**: Prevents double-resumption of continuation
-- **Cancellation Handler**: Ensures proper cleanup when cancelled
-- **Task Scope**: Continuation is scoped to specific task lifetime
+- **Shared hasResumed Guard**: The completion path and the cancellation handler share one `SearchCancellationState`, so whichever runs first resumes the continuation exactly once
+- **Cancellation Handler**: Resumes with `CancellationError` and cancels the completer
+- **Main-Actor Hops**: Both paths hop to the main actor, so the guard needs no lock
 
 ### 2. Optional Chaining for Safety
 
@@ -522,8 +565,8 @@ if let highlightRange,
 
 ```swift
 // Automatic cleanup through scoping
-let searchCompleter = MKLocalSearchCompleter()  // Local scope
-let handler = LocalSearchCompleterHandler()     // Local scope
+let searchCompleter = completerFactory()                     // Local scope
+let localSearchCompleterHandler = LocalSearchCompleterHandler() // Local scope
 
 // No explicit cleanup needed - ARC handles deallocation
 // Cancellation automatically cleans up MapKit resources

@@ -32,7 +32,7 @@ graph TD
 
 ### 1. LocationSearch Integration Tests
 
-The current test suite focuses on end-to-end integration testing with real MapKit services:
+`MapKitSwiftSearchTests.swift` runs end-to-end tests against real MapKit services. Behavior that depends on timing or MapKit failures is covered by unit tests with fakes (section 6).
 
 ```swift
 @MainActor
@@ -61,33 +61,29 @@ Tests verify proper behavior under concurrent access patterns:
 ```swift
 @Test("If a search is in progress, cancel if we get another search request")
 func multipleSearches() async throws {
-    var cancelCount = 0
-    let locationSearch = LocationSearch()
+    let locationSearch = LocationSearch(debounceSearchDelay: .milliseconds(200))
 
-    async let search1: Void = {
-        do {
+    let search1 = Task {
+        await #expect(throws: LocationSearchError.debounce) {
             _ = try await locationSearch.search(queryFragment: "Sheridan, In")
-        } catch {
-            cancelCount += 1
         }
-    }()
+    }
 
-    async let search2: Void = {
-        do {
-            _ = try await locationSearch.search(queryFragment: "Caledonia, Mi")
-        } catch {
-            // Second search should succeed
-        }
-    }()
+    try await Task.sleep(for: .milliseconds(50))
 
-    _ = await (search1, search2)
-    #expect(cancelCount == 1, "Expected task1 to cancel")
+    do {
+        _ = try await locationSearch.search(queryFragment: "Caledonia, Mi")
+    } catch {
+        print("task2 cancelled")
+    }
+
+    _ = await search1.value
 }
 ```
 
 **Key Testing Patterns**:
-- **Concurrent Execution**: Uses `async let` to test real concurrent scenarios
-- **Cancellation Verification**: Confirms that previous searches are properly cancelled
+- **Concurrent Execution**: Starts the first search in a `Task` so the second overlaps it
+- **Cancellation Verification**: Confirms the earlier call loses its debounce and throws `.debounce`
 - **Race Condition Prevention**: Validates that the system handles overlapping requests correctly
 
 ### 3. Edge Case Coverage
@@ -127,24 +123,53 @@ Specific tests prevent known bugs from reoccurring:
 
 ```swift
 @Test("Verify highlightedSubTitle uses correct highlight range")
-func verifyHighlightedSubTitleUsesCorrectRange() throws {
-    // This test verifies that the highlightedSubTitle method uses subtitleHighlightRange
-    // rather than titleHighlightRange, which was a bug found during code review
-    
-    let iosFilePath = "/path/to/LocalSearchCompletion+iOS.swift"
-    let macOSFilePath = "/path/to/LocalSearchCompletion+macOS.swift"
-    
-    // Verify the fix is in place by checking source code
-    if let iosContent = try? String(contentsOfFile: iosFilePath, encoding: .utf8) {
-        #expect(iosContent.contains("subtitleHighlightRange"), "iOS fix should be present")
-    }
+func verifyHighlightedSubTitleUsesCorrectRange() {
+    let subtitleRange = NSRange(location: 4, length: 4)
+    let completion = LocalSearchCompletion(
+        title: "Pizza Place",
+        subTitle: "123 Main Street",
+        titleHighlightRange: HighlightRange(nsRange: NSRange(location: 0, length: 3)),
+        subtitleHighlightRange: HighlightRange(nsRange: subtitleRange),
+    )
+
+    let attributedSubtitle = completion.highlightedSubTitle(foregroundColor: .red, highlightColor: .blue)
+    let nsAttributed = NSAttributedString(attributedSubtitle)
+
+    // The highlight color must start at subtitleHighlightRange, not titleHighlightRange
+    var highlightRange = NSRange()
+    _ = nsAttributed.attribute(.foregroundColor, at: subtitleRange.location, effectiveRange: &highlightRange)
+    #expect(highlightRange == subtitleRange)
 }
 ```
 
-**Why Source Code Testing**:
+**Why Distinct Ranges**:
 - **Copy-Paste Error Prevention**: Platform-specific code is prone to copy-paste errors
-- **Build-Time Validation**: Catches regressions at build time rather than runtime
+- **Behavior, Not Source**: Title and subtitle ranges differ, so using the wrong one changes where the color lands
 - **Documentation**: Test name clearly describes what was fixed
+
+### 6. Unit Tests with Injected Fakes
+
+`LocationSearchUnitTests` builds `LocationSearch` through its internal initializer, which takes a completer factory, a local-search factory, and `debounceSleep`. `FakeSearchCompleter` and `FakeLocalSearch` stand in for MapKit, so tests can deliver results or failures at a chosen moment:
+
+```swift
+@Test("Search completer errors map to searchCompletionFailed")
+func searchCompleterErrorMapsToSearchCompletionFailed() async throws {
+    let fakeCompleter = FakeSearchCompleter()
+    let locationSearch = LocationSearch(
+        numberOfCharactersBeforeSearching: 1,
+        debounceSearchDelay: .milliseconds(1),
+        completerFactory: { fakeCompleter },
+        localSearchFactory: { _ in FakeLocalSearch() },
+    )
+
+    fakeCompleter.onQueryFragmentSet = { _ in
+        fakeCompleter.sendError(NSError(domain: "MapKitSwiftSearchTests", code: 1))
+    }
+    // ... expect LocationSearchError.searchCompletionFailed
+}
+```
+
+These tests cover what real MapKit can't reproduce on demand: completer failures, `placemark(for:)` error mapping, a newer call superseding an in-flight search, and MapKit answering a search after it was superseded.
 
 ## Advanced Testing Strategies
 
@@ -200,43 +225,6 @@ func searchPerformanceUnderLoad() async throws {
     
     let timeElapsed = CFAbsoluteTimeGetCurrent() - startTime
     #expect(timeElapsed < 5.0, "Search sequence should complete within 5 seconds")
-}
-```
-
-### 3. Mock-Based Unit Testing
-
-For testing without network dependencies:
-
-```swift
-// Example mock-based testing approach (not currently implemented)
-protocol LocationSearchProviding {
-    func search(queryFragment: String) async throws -> [LocalSearchCompletion]
-}
-
-class MockLocationSearch: LocationSearchProviding {
-    var mockResults: [LocalSearchCompletion] = []
-    var shouldThrowError: LocationSearchError?
-    
-    func search(queryFragment: String) async throws -> [LocalSearchCompletion] {
-        if let error = shouldThrowError {
-            throw error
-        }
-        return mockResults.filter { completion in
-            completion.title.contains(queryFragment) || 
-            completion.subTitle.contains(queryFragment)
-        }
-    }
-}
-
-@Test("Mock-based search behavior")
-func mockBasedSearchBehavior() async throws {
-    let mockSearch = MockLocationSearch()
-    mockSearch.mockResults = [
-        // Create test LocalSearchCompletion instances
-    ]
-    
-    let results = try await mockSearch.search(queryFragment: "test")
-    #expect(!results.isEmpty, "Mock should return results")
 }
 ```
 
