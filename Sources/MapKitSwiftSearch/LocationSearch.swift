@@ -251,6 +251,8 @@ public final class LocationSearch {
     ///   - `LocationSearchError.duplicateSearchCriteria` if searching with the same text consecutively
     ///   - `LocationSearchError.invalidSearchCriteria` if the query length is less than required
     ///   - `LocationSearchError.searchCompletionFailed` if the search operation fails
+    ///   - `CancellationError` if a newer call supersedes this one, including one that
+    ///     returns early for an empty or too-short query
     public func search(queryFragment: String) async throws -> [LocalSearchCompletion] {
         debounceTask?.cancel()
 
@@ -285,6 +287,10 @@ public final class LocationSearch {
         // Update the last search query for future duplicate detection
         lastSearchQuery = queryFragment
 
+        // Cancel before the early exits below, or the older search would deliver
+        // its results after this call returns
+        currentSearchTask?.cancel()
+
         // Handle empty queries by returning empty results rather than searching
         // This provides immediate feedback and avoids unnecessary API calls
         guard !queryFragment.isEmpty else {
@@ -300,9 +306,6 @@ public final class LocationSearch {
             throw LocationSearchError.invalidSearchCriteria
         }
 
-        // Cancel any in-flight search to prevent race conditions and outdated results
-        currentSearchTask?.cancel()
-
         // Create and track the new search task
         let task = SearchTask {
             try await performSearch(queryFragment: queryFragment)
@@ -310,8 +313,15 @@ public final class LocationSearch {
 
         currentSearchTask = task
 
-        // Execute the search and return results
-        return try await task.value
+        let completions = try await task.value
+
+        // MapKit's results can resume the task before its cancellation handler runs,
+        // so a superseded search can still finish successfully
+        guard !task.isCancelled else {
+            throw CancellationError()
+        }
+
+        return completions
     }
 
     /// Retrieves detailed placemark information for a given search completion result.

@@ -50,6 +50,13 @@ struct LocationSearchUnitTests {
         }
     }
 
+    static let coffeeShopCompletion = LocalSearchCompletion(
+        title: "Coffee shop",
+        subTitle: "Grand Rapids, MI",
+        titleHighlightRange: nil,
+        subtitleHighlightRange: nil,
+    )
+
     @Test("Search completer errors map to searchCompletionFailed")
     func searchCompleterErrorMapsToSearchCompletionFailed() async throws {
         let fakeCompleter = FakeSearchCompleter()
@@ -118,6 +125,103 @@ struct LocationSearchUnitTests {
         await #expect(throws: CancellationError.self) {
             _ = try await firstSearch.value
         }
+    }
+
+    /// Verifies clearing the query while MapKit is still searching leaves no stale suggestions.
+    /// To replicate: type "Coffee shop" → clear the field before suggestions appear → list stays empty.
+    @Test("Empty query cancels the in-flight search")
+    func search_whenSupersededByEmptyQuery_cancelsInFlightSearch() async throws {
+        // Given: A search for "Coffee shop" waiting on MapKit
+        let fakeCompleter = FakeSearchCompleter()
+        let signal = Signal()
+        let locationSearch = LocationSearch(
+            numberOfCharactersBeforeSearching: 5,
+            debounceSearchDelay: .milliseconds(10),
+            completerFactory: { fakeCompleter },
+            localSearchFactory: { _ in FakeLocalSearch() },
+        )
+        fakeCompleter.onQueryFragmentSet = { _ in
+            Task { await signal.fire() }
+        }
+        let firstSearch = Task {
+            try await locationSearch.search(queryFragment: "Coffee shop")
+        }
+        await signal.wait()
+
+        // When: The query is cleared, then MapKit answers the original search
+        let emptyResults = try await locationSearch.search(queryFragment: "")
+        fakeCompleter.sendResults([Self.coffeeShopCompletion])
+
+        // Then: The original search is cancelled instead of delivering stale results
+        #expect(emptyResults.isEmpty)
+        await #expect(throws: CancellationError.self) {
+            _ = try await firstSearch.value
+        }
+    }
+
+    /// Verifies deleting back below the minimum length while MapKit is searching leaves no stale suggestions.
+    /// To replicate: type "Coffee shop" → delete back to "Co" before suggestions appear → list stays empty.
+    @Test("Too-short query cancels the in-flight search")
+    func search_whenSupersededByTooShortQuery_cancelsInFlightSearch() async throws {
+        // Given: A search for "Coffee shop" waiting on MapKit
+        let fakeCompleter = FakeSearchCompleter()
+        let signal = Signal()
+        let locationSearch = LocationSearch(
+            numberOfCharactersBeforeSearching: 5,
+            debounceSearchDelay: .milliseconds(10),
+            completerFactory: { fakeCompleter },
+            localSearchFactory: { _ in FakeLocalSearch() },
+        )
+        fakeCompleter.onQueryFragmentSet = { _ in
+            Task { await signal.fire() }
+        }
+        let firstSearch = Task {
+            try await locationSearch.search(queryFragment: "Coffee shop")
+        }
+        await signal.wait()
+
+        // When: A too-short query arrives, then MapKit answers the original search
+        await #expect(throws: LocationSearchError.invalidSearchCriteria) {
+            _ = try await locationSearch.search(queryFragment: "Co")
+        }
+        fakeCompleter.sendResults([Self.coffeeShopCompletion])
+
+        // Then: The original search is cancelled instead of delivering stale results
+        await #expect(throws: CancellationError.self) {
+            _ = try await firstSearch.value
+        }
+    }
+
+    /// Verifies resubmitting the query already in flight still delivers its results.
+    /// To replicate: type "Coffee shop" → add and delete a character before suggestions appear → suggestions appear.
+    @Test("Duplicate query leaves the in-flight search running")
+    func search_whenDuplicateOfInFlightQuery_deliversInFlightResults() async throws {
+        // Given: A search for "Coffee shop" waiting on MapKit
+        let fakeCompleter = FakeSearchCompleter()
+        let signal = Signal()
+        let locationSearch = LocationSearch(
+            numberOfCharactersBeforeSearching: 5,
+            debounceSearchDelay: .milliseconds(10),
+            completerFactory: { fakeCompleter },
+            localSearchFactory: { _ in FakeLocalSearch() },
+        )
+        fakeCompleter.onQueryFragmentSet = { _ in
+            Task { await signal.fire() }
+        }
+        let firstSearch = Task {
+            try await locationSearch.search(queryFragment: "Coffee shop")
+        }
+        await signal.wait()
+
+        // When: The same query arrives again, then MapKit answers the original search
+        await #expect(throws: LocationSearchError.duplicateSearchCriteria) {
+            _ = try await locationSearch.search(queryFragment: "Coffee shop")
+        }
+        fakeCompleter.sendResults([Self.coffeeShopCompletion])
+
+        // Then: The original search delivers its results
+        let results = try await firstSearch.value
+        #expect(results == [Self.coffeeShopCompletion])
     }
 
     @Test("Placemark maps MKError to mapKitError")
