@@ -20,8 +20,8 @@ MapKitSwiftSearch provides a modern Swift interface for location search operatio
 Add MapKitSwiftSearch to your project using Swift Package Manager:
 
 1. In Xcode, select File → Add Package Dependencies
-2. Enter the repository URL: `https://github.com/yourusername/MapKitSwiftSearch`
-3. Choose the version requirements that fit your project
+2. Enter the repository URL: `https://github.com/kraigspear/MapKitSwiftSearch.git`
+3. Choose **Up to Next Minor Version**
 4. Add the package to your target
 
 ### Package.swift
@@ -30,7 +30,7 @@ For command-line projects, add MapKitSwiftSearch to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/yourusername/MapKitSwiftSearch", from: "1.0.0")
+    .package(url: "https://github.com/kraigspear/MapKitSwiftSearch.git", .upToNextMinor(from: "0.1.1"))
 ],
 targets: [
     .target(
@@ -39,6 +39,8 @@ targets: [
     )
 ]
 ```
+
+The package is pre-1.0, so a minor release can change the public API. `.upToNextMinor` takes patch releases and waits for you to opt in to the next minor.
 
 ## First Search
 

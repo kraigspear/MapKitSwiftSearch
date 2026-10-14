@@ -154,26 +154,9 @@ func selectLocation(_ completion: LocalSearchCompletion) async {
         print("Name: \(placemark.name ?? "Unknown")")
         print("Coordinates: \(placemark.coordinate)")
         
-        // Build formatted address
-        let addressComponents = [
-            placemark.subThoroughfare,    // House number
-            placemark.thoroughfare,       // Street name
-            placemark.locality,           // City
-            placemark.administrativeArea, // State
-            placemark.postalCode         // ZIP code
-        ].compactMap { $0 }
-        
-        let formattedAddress = addressComponents.joined(separator: ", ")
-        print("Address: \(formattedAddress)")
-        
-        // Access additional information
-        if let countryName = placemark.countryName {
-            print("Country: \(countryName)")
-        }
-        
-        if let countryCode = placemark.countryCode {
-            print("Country Code: \(countryCode)")
-        }
+        // MapKit formats the address; shortAddress suits compact UI
+        print("Address: \(placemark.fullAddress ?? "No address")")
+        print("Short address: \(placemark.shortAddress ?? "No address")")
         
     } catch {
         print("Failed to get placemark details: \(error)")
@@ -349,9 +332,11 @@ struct SelectedLocationView: View {
                     .fontWeight(.medium)
             }
             
-            Text(formattedAddress)
-                .font(.caption)
-                .foregroundColor(.secondary)
+            if let fullAddress = placemark.fullAddress {
+                Text(fullAddress)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
             
             Text("Coordinates: \(placemark.coordinate.latitude), \(placemark.coordinate.longitude)")
                 .font(.caption2)
@@ -361,18 +346,6 @@ struct SelectedLocationView: View {
         .background(Color(.secondarySystemBackground))
         .cornerRadius(8)
         .padding(.horizontal)
-    }
-    
-    private var formattedAddress: String {
-        let components = [
-            placemark.subThoroughfare,
-            placemark.thoroughfare,
-            placemark.locality,
-            placemark.administrativeArea,
-            placemark.postalCode
-        ].compactMap { $0 }
-        
-        return components.joined(separator: ", ")
     }
 }
 ```
