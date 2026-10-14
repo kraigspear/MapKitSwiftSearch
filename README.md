@@ -60,7 +60,7 @@ if let first = completions.first,
 
 ### Search as the user types
 
-Call `search(queryFragment:)` on every change to the text. Each call waits out the debounce delay, and a newer call supersedes an older one. The superseded call throws `LocationSearchError.debounce`, or `CancellationError` if its MapKit search had already started. Treat both as "keep the current results," not as failures.
+Call `search(queryFragment:)` on every change to the text. Each call waits out the debounce delay, and a newer call with a different query supersedes an older one. The superseded call throws `LocationSearchError.debounce`, or `CancellationError` if its MapKit search had already started. Treat both as "keep the current results," not as failures.
 
 ```swift
 import MapKitSwiftSearch
