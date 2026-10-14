@@ -24,7 +24,7 @@ struct HighlightRangeTests {
     }
 
     @Test("HighlightRange returns nil for out-of-bounds ranges")
-    func highlightRangeOutOfBoundsReturnsNil() throws {
+    func highlightRangeOutOfBoundsReturnsNil() {
         let text = AttributedString("Coffee")
         let range = HighlightRange(nsRange: NSRange(location: 0, length: 99))
 
@@ -51,7 +51,7 @@ struct HighlightRangeTests {
     }
 
     @Test("Verify highlightedSubTitle uses correct highlight range")
-    func verifyHighlightedSubTitleUsesCorrectRange() throws {
+    func verifyHighlightedSubTitleUsesCorrectRange() {
         #if os(iOS) || os(macOS)
         let title = "Pizza Place"
         let subTitle = "123 Main Street"

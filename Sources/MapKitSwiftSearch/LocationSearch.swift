@@ -295,8 +295,8 @@ public final class LocationSearch {
         // Enforce minimum character requirement to ensure meaningful search results
         // Short queries typically produce too many generic results
         guard queryFragment.count >= numberOfCharactersBeforeSearching else {
-            logger
-                .debug("Query too short (\(queryFragment.count) chars, need \(self.numberOfCharactersBeforeSearching))")
+            let minimumCharacters = numberOfCharactersBeforeSearching
+            logger.debug("Query too short (\(queryFragment.count) chars, need \(minimumCharacters))")
             throw LocationSearchError.invalidSearchCriteria
         }
 

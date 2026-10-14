@@ -10,7 +10,7 @@ struct LocationSearchUnitTests {
         var onQueryFragmentSet: ((String) -> Void)?
         var onCancel: (() -> Void)?
 
-        var queryFragment: String = "" {
+        var queryFragment = "" {
             didSet {
                 onQueryFragmentSet?(queryFragment)
             }
