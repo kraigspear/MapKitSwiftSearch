@@ -95,7 +95,7 @@ let locationSearch = LocationSearch(
 )
 ```
 
-A query shorter than the minimum throws `LocationSearchError.invalidSearchCriteria`. An empty query returns no completions.
+A query shorter than the minimum throws `LocationSearchError.invalidSearchCriteria`. An empty query returns no completions. Repeating the previous query throws `LocationSearchError.duplicateSearchCriteria`, even when the query is empty.
 
 ### Resolve a placemark
 
