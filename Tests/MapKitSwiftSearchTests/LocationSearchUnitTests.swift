@@ -50,6 +50,24 @@ struct LocationSearchUnitTests {
         }
     }
 
+    /// A latch whose waiters resume on the main actor, so a test controls which jobs share a turn.
+    @MainActor
+    final class Gate {
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+        private var isOpen = false
+
+        func wait() async {
+            guard !isOpen else { return }
+            await withCheckedContinuation { waiters.append($0) }
+        }
+
+        func open() {
+            isOpen = true
+            waiters.forEach { $0.resume() }
+            waiters.removeAll()
+        }
+    }
+
     static let coffeeShopCompletion = LocalSearchCompletion(
         title: "Coffee shop",
         subTitle: "Grand Rapids, MI",
@@ -190,6 +208,51 @@ struct LocationSearchUnitTests {
         await #expect(throws: CancellationError.self) {
             _ = try await firstSearch.value
         }
+    }
+
+    /// Verifies a superseded search never returns results, even when MapKit answers in the same turn
+    /// the newer call cancels it.
+    /// To replicate: type "Coffee shop" → clear the field just as suggestions arrive → list stays empty.
+    @Test("Superseded search that MapKit completes never overwrites newer results")
+    func search_whenMapKitCompletesSupersededSearch_neverOverwritesNewerResults() async {
+        // Given: A search for "Coffee shop" waiting on MapKit, and a newer call held at its debounce
+        let fakeCompleter = FakeSearchCompleter()
+        let signal = Signal()
+        let debounceArrived = Gate()
+        let debounceRelease = Gate()
+        var debounceSleepCallCount = 0
+        let locationSearch = LocationSearch(
+            numberOfCharactersBeforeSearching: 5,
+            debounceSearchDelay: .milliseconds(10),
+            completerFactory: { fakeCompleter },
+            localSearchFactory: { _ in FakeLocalSearch() },
+            debounceSleep: { _ in
+                debounceSleepCallCount += 1
+                guard debounceSleepCallCount == 2 else { return }
+                debounceArrived.open()
+                await debounceRelease.wait()
+            },
+        )
+        fakeCompleter.onQueryFragmentSet = { _ in
+            Task { await signal.fire() }
+        }
+        var displayedCompletions: [LocalSearchCompletion]?
+        let firstSearch = Task {
+            displayedCompletions = try await locationSearch.search(queryFragment: "Coffee shop")
+        }
+        await signal.wait()
+        let emptySearch = Task {
+            displayedCompletions = try await locationSearch.search(queryFragment: "")
+        }
+        await debounceArrived.wait()
+
+        // When: The newer call's debounce ends and MapKit answers in the same main-actor turn
+        debounceRelease.open()
+        fakeCompleter.sendResults([Self.coffeeShopCompletion])
+        _ = await (firstSearch.result, emptySearch.result)
+
+        // Then: The last results applied are the newer call's, as a caller assigning each result would show
+        #expect(displayedCompletions == [])
     }
 
     /// Verifies resubmitting the query already in flight still delivers its results.

@@ -182,6 +182,9 @@ public final class LocationSearch {
     private let completerFactory: () -> LocalSearchCompleterProtocol
     private let localSearchFactory: (LocalSearchCompletion) -> LocalSearchProtocol
 
+    /// Injected so tests control when a debounce ends relative to MapKit's results.
+    private let debounceSleep: (Duration) async throws -> Void
+
     // MARK: - Initialization
 
     /// Creates a new location search instance with customizable search behavior.
@@ -229,11 +232,13 @@ public final class LocationSearch {
         debounceSearchDelay: Duration,
         completerFactory: @escaping () -> LocalSearchCompleterProtocol,
         localSearchFactory: @escaping (LocalSearchCompletion) -> LocalSearchProtocol,
+        debounceSleep: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
     ) {
         self.numberOfCharactersBeforeSearching = numberOfCharactersBeforeSearching
         self.debounceSearchDelay = debounceSearchDelay
         self.completerFactory = completerFactory
         self.localSearchFactory = localSearchFactory
+        self.debounceSleep = debounceSleep
     }
 
     // MARK: - Public Search Methods
@@ -259,7 +264,7 @@ public final class LocationSearch {
         let newDebounceTask = Task {
             do {
                 logger.debug("Starting debounce")
-                try await Task.sleep(for: debounceSearchDelay)
+                try await debounceSleep(debounceSearchDelay)
                 logger.debug("Completed debounce")
                 return true
             } catch {
