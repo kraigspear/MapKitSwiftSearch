@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    # Swift 6.4 ships only with Xcode 27, which only the xcode-27 image has.
+    runs-on: xcode-27
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check toolchain
+        run: |
+          swift --version
+          swift --version 2>&1 | grep -q "Swift version 6.4" \
+            || { echo "::error::Package.swift needs Swift 6.4; DEVELOPER_DIR selects another toolchain"; exit 1; }
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+      - name: Build README snippets
+        run: scripts/check-readme-snippets.sh

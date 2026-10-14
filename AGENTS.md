@@ -4,7 +4,7 @@
 `Sources/MapKitSwiftSearch` holds the library: `LocationSearch` and the `Sendable` value types it returns. UIKit and AppKit specifics live in `Sources/MapKitSwiftSearch/PlatformSpecific/`. Tests live in `Tests/MapKitSwiftSearchTests`. `TestApp/` is a demo app outside the package build. Longer-form documentation is in `docs/` and `Sources/MapKitSwiftSearch/Documentation.docc`.
 
 ## Build, Test, and Development Commands
-Use SwiftPM: `swift build` compiles the package and `swift test` runs the suite on the macOS host. Target a subset with `swift test --filter SomeTests`. `./scan.sh` runs Periphery. Open the package in Xcode with `xed .`.
+Use SwiftPM: `swift build` compiles the package and `swift test` runs the suite on the macOS host. Target a subset with `swift test --filter SomeTests`. `./scan.sh` runs Periphery. `scripts/check-readme-snippets.sh` compiles every Swift snippet in README.md; CI runs it with build and test. Open the package in Xcode with `xed .`.
 
 ## Coding Style & Naming Conventions
 Format everything with `swiftformat .` (4-space indentation, explicit `self` removed, trailing commas). Keep types in PascalCase and file names matching their primary type.
