@@ -182,6 +182,9 @@ public final class LocationSearch {
     private let completerFactory: () -> LocalSearchCompleterProtocol
     private let localSearchFactory: (LocalSearchCompletion) -> LocalSearchProtocol
 
+    /// Injected so tests control when a debounce ends relative to MapKit's results.
+    private let debounceSleep: (Duration) async throws -> Void
+
     // MARK: - Initialization
 
     /// Creates a new location search instance with customizable search behavior.
@@ -229,11 +232,13 @@ public final class LocationSearch {
         debounceSearchDelay: Duration,
         completerFactory: @escaping () -> LocalSearchCompleterProtocol,
         localSearchFactory: @escaping (LocalSearchCompletion) -> LocalSearchProtocol,
+        debounceSleep: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
     ) {
         self.numberOfCharactersBeforeSearching = numberOfCharactersBeforeSearching
         self.debounceSearchDelay = debounceSearchDelay
         self.completerFactory = completerFactory
         self.localSearchFactory = localSearchFactory
+        self.debounceSleep = debounceSleep
     }
 
     // MARK: - Public Search Methods
@@ -251,13 +256,15 @@ public final class LocationSearch {
     ///   - `LocationSearchError.duplicateSearchCriteria` if searching with the same text consecutively
     ///   - `LocationSearchError.invalidSearchCriteria` if the query length is less than required
     ///   - `LocationSearchError.searchCompletionFailed` if the search operation fails
+    ///   - `CancellationError` if a newer call supersedes this one, including one that
+    ///     returns early for an empty or too-short query
     public func search(queryFragment: String) async throws -> [LocalSearchCompletion] {
         debounceTask?.cancel()
 
         let newDebounceTask = Task {
             do {
                 logger.debug("Starting debounce")
-                try await Task.sleep(for: debounceSearchDelay)
+                try await debounceSleep(debounceSearchDelay)
                 logger.debug("Completed debounce")
                 return true
             } catch {
@@ -285,6 +292,10 @@ public final class LocationSearch {
         // Update the last search query for future duplicate detection
         lastSearchQuery = queryFragment
 
+        // Cancel before the early exits below, or the older search would deliver
+        // its results after this call returns
+        currentSearchTask?.cancel()
+
         // Handle empty queries by returning empty results rather than searching
         // This provides immediate feedback and avoids unnecessary API calls
         guard !queryFragment.isEmpty else {
@@ -300,9 +311,6 @@ public final class LocationSearch {
             throw LocationSearchError.invalidSearchCriteria
         }
 
-        // Cancel any in-flight search to prevent race conditions and outdated results
-        currentSearchTask?.cancel()
-
         // Create and track the new search task
         let task = SearchTask {
             try await performSearch(queryFragment: queryFragment)
@@ -310,8 +318,15 @@ public final class LocationSearch {
 
         currentSearchTask = task
 
-        // Execute the search and return results
-        return try await task.value
+        let searchResult = await task.result
+
+        // MapKit's answer can resume the task before its cancellation handler runs,
+        // so a superseded search can still finish with results or a MapKit error
+        guard !task.isCancelled else {
+            throw CancellationError()
+        }
+
+        return try searchResult.get()
     }
 
     /// Retrieves detailed placemark information for a given search completion result.
