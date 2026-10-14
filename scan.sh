@@ -1,2 +1,4 @@
-xcodebuild -scheme RainViewer -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16 Pro' -derivedDataPath '../dd' clean build
-periphery scan --skip-build --index-store-path '../dd/Index.noindex/DataStore/'
+#!/bin/sh
+# The default `swiftbuild` system's index makes Periphery report public API, such as
+# `placemark(for:)`, as unused; the native build system's index does not.
+periphery scan --format xcode -- --build-system native
