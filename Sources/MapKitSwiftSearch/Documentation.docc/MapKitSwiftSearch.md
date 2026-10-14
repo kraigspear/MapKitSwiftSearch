@@ -41,8 +41,8 @@ do {
 
 Add MapKitSwiftSearch to your project using Swift Package Manager:
 
-```
-https://github.com/yourusername/MapKitSwiftSearch
+```swift
+.package(url: "https://github.com/kraigspear/MapKitSwiftSearch.git", .upToNextMinor(from: "0.1.1"))
 ```
 
 ## Topics
