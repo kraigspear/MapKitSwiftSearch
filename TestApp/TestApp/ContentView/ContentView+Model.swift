@@ -39,7 +39,7 @@ extension ContentView {
         var mapCameraPosition: MapCameraPosition = .region(MKCoordinateRegion())
 
         /// Current search text input
-        var searchText: String = "" {
+        var searchText = "" {
             didSet {
                 let searchText = searchText
                 guard oldValue != searchText else {
