@@ -318,15 +318,15 @@ public final class LocationSearch {
 
         currentSearchTask = task
 
-        let completions = try await task.value
+        let searchResult = await task.result
 
-        // MapKit's results can resume the task before its cancellation handler runs,
-        // so a superseded search can still finish successfully
+        // MapKit's answer can resume the task before its cancellation handler runs,
+        // so a superseded search can still finish with results or a MapKit error
         guard !task.isCancelled else {
             throw CancellationError()
         }
 
-        return completions
+        return try searchResult.get()
     }
 
     /// Retrieves detailed placemark information for a given search completion result.

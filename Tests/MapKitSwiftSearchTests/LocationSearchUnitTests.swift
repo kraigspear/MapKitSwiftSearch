@@ -68,6 +68,28 @@ struct LocationSearchUnitTests {
         }
     }
 
+    /// How MapKit answers a search that a newer call is superseding.
+    enum MapKitAnswer: CaseIterable {
+        case completions
+        case failure
+
+        @MainActor
+        func deliver(to completer: FakeSearchCompleter) {
+            switch self {
+            case .completions:
+                completer.sendResults([LocationSearchUnitTests.coffeeShopCompletion])
+            case .failure:
+                completer.sendError(NSError(domain: "MapKitSwiftSearchTests", code: 1))
+            }
+        }
+    }
+
+    /// What a caller shows after applying a search outcome, ignoring cancellation as callers should.
+    enum DisplayedSearch: Equatable {
+        case completions([LocalSearchCompletion])
+        case failure
+    }
+
     static let coffeeShopCompletion = LocalSearchCompletion(
         title: "Coffee shop",
         subTitle: "Grand Rapids, MI",
@@ -210,11 +232,11 @@ struct LocationSearchUnitTests {
         }
     }
 
-    /// Verifies a superseded search never returns results, even when MapKit answers in the same turn
-    /// the newer call cancels it.
-    /// To replicate: type "Coffee shop" → clear the field just as suggestions arrive → list stays empty.
-    @Test("Superseded search that MapKit completes never overwrites newer results")
-    func search_whenMapKitCompletesSupersededSearch_neverOverwritesNewerResults() async {
+    /// Verifies a superseded search never shows results or an error, even when MapKit answers in the
+    /// same turn the newer call cancels it.
+    /// To replicate: type "Coffee shop" → clear the field just as MapKit answers → list stays empty, no error.
+    @Test("Superseded search that MapKit answers never overwrites newer results", arguments: MapKitAnswer.allCases)
+    func search_whenMapKitAnswersSupersededSearch_neverOverwritesNewerResults(mapKitAnswer: MapKitAnswer) async {
         // Given: A search for "Coffee shop" waiting on MapKit, and a newer call held at its debounce
         let fakeCompleter = FakeSearchCompleter()
         let signal = Signal()
@@ -236,23 +258,28 @@ struct LocationSearchUnitTests {
         fakeCompleter.onQueryFragmentSet = { _ in
             Task { await signal.fire() }
         }
-        var displayedCompletions: [LocalSearchCompletion]?
+        var displayedSearch: DisplayedSearch?
         let firstSearch = Task {
-            displayedCompletions = try await locationSearch.search(queryFragment: "Coffee shop")
+            do {
+                displayedSearch = try await .completions(locationSearch.search(queryFragment: "Coffee shop"))
+            } catch is CancellationError {
+            } catch {
+                displayedSearch = .failure
+            }
         }
         await signal.wait()
         let emptySearch = Task {
-            displayedCompletions = try await locationSearch.search(queryFragment: "")
+            displayedSearch = try await .completions(locationSearch.search(queryFragment: ""))
         }
         await debounceArrived.wait()
 
         // When: The newer call's debounce ends and MapKit answers in the same main-actor turn
         debounceRelease.open()
-        fakeCompleter.sendResults([Self.coffeeShopCompletion])
+        mapKitAnswer.deliver(to: fakeCompleter)
         _ = await (firstSearch.result, emptySearch.result)
 
-        // Then: The last results applied are the newer call's, as a caller assigning each result would show
-        #expect(displayedCompletions == [])
+        // Then: The last outcome shown is the newer call's
+        #expect(displayedSearch == .completions([]))
     }
 
     /// Verifies resubmitting the query already in flight still delivers its results.
