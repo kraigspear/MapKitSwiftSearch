@@ -2,6 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 Before changing public API or documentation, read [AGENTS.md](AGENTS.md): it says where each documentation fact lives and how API changes are released. Its rules apply here too.
+Use the domain terms defined in [GLOSSARY.md](GLOSSARY.md) in new code, docs, ADRs, and tickets.
 
 ## Project Overview
 
