@@ -1,253 +1,95 @@
-# Getting Started with MapKitSwiftSearch
+# Getting Started
 
-Learn how to quickly integrate and use MapKitSwiftSearch in your Swift applications.
+Search as the user types, highlight the matches, and resolve the pick to a placemark.
 
 ## Overview
 
-MapKitSwiftSearch provides a modern Swift interface for location search operations using MapKit. It wraps MapKit's `MKLocalSearchCompleter` with async/await support, structured concurrency, and type-safe error handling.
+``LocationSearch`` is `@MainActor`. Give each search field its own instance, because a newer search supersedes an older one on the same instance.
 
-### Key Features
+### Search as the user types
 
-- **Modern Swift**: Uses async/await and structured concurrency
-- **Type Safety**: Swift-native error types and Sendable-compliant results
-- **Performance**: Built-in debouncing and intelligent search management
-- **Cross-Platform**: Works on both iOS and macOS with platform-specific UI helpers
-
-## Installation
-
-### Swift Package Manager
-
-Add MapKitSwiftSearch to your project using Swift Package Manager:
-
-1. In Xcode, select File → Add Package Dependencies
-2. Enter the repository URL: `https://github.com/kraigspear/MapKitSwiftSearch.git`
-3. Choose **Up to Next Minor Version**
-4. Add the package to your target
-
-### Package.swift
-
-For command-line projects, add MapKitSwiftSearch to your `Package.swift`:
-
-```swift
-dependencies: [
-    .package(url: "https://github.com/kraigspear/MapKitSwiftSearch.git", .upToNextMinor(from: "0.1.2"))
-],
-targets: [
-    .target(
-        name: "YourTarget",
-        dependencies: ["MapKitSwiftSearch"]
-    )
-]
-```
-
-The package is pre-1.0, so a minor release can change the public API. `.upToNextMinor` takes patch releases and waits for you to opt in to the next minor.
-
-## First Search
-
-Here's the simplest way to perform a location search:
+Call ``LocationSearch/search(queryFragment:)`` on every change to the text. A superseded call throws ``LocationSearchError/debounce``, or `CancellationError` if its MapKit search had already started. Repeating the previous query throws ``LocationSearchError/duplicateSearchCriteria``. All three mean "keep the current results."
 
 ```swift
 import MapKitSwiftSearch
+import Observation
 
-// Create a search instance
-let locationSearch = LocationSearch()
-
-do {
-    // Perform a search
-    let results = try await locationSearch.search(queryFragment: "Coffee shops")
-    
-    // Display results
-    for result in results {
-        print("\(result.title) - \(result.subTitle)")
-    }
-} catch {
-    print("Search failed: \(error)")
-}
-```
-
-## Basic Integration in SwiftUI
-
-Here's how to integrate location search into a SwiftUI view:
-
-```swift
-import SwiftUI
-import MapKitSwiftSearch
-
-struct LocationSearchView: View {
-    @State private var searchText = ""
-    @State private var searchResults: [LocalSearchCompletion] = []
-    @State private var locationSearch = LocationSearch()
-    
-    var body: some View {
-        NavigationView {
-            VStack {
-                // Search field
-                TextField("Search for locations...", text: $searchText)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .onChange(of: searchText) { newValue in
-                        Task {
-                            await performSearch(query: newValue)
-                        }
-                    }
-                
-                // Results list
-                List(searchResults) { result in
-                    VStack(alignment: .leading) {
-                        Text(result.title)
-                            .font(.headline)
-                        Text(result.subTitle)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .onTapGesture {
-                        Task {
-                            await selectLocation(result)
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Location Search")
-        }
-    }
-    
-    private func performSearch(query: String) async {
-        do {
-            let results = try await locationSearch.search(queryFragment: query)
-            await MainActor.run {
-                searchResults = results
-            }
-        } catch LocationSearchError.debounce {
-            // Search was debounced, ignore
-        } catch LocationSearchError.invalidSearchCriteria {
-            // Not enough characters yet, clear results
-            await MainActor.run {
-                searchResults = []
-            }
-        } catch {
-            print("Search error: \(error)")
-        }
-    }
-    
-    private func selectLocation(_ completion: LocalSearchCompletion) async {
-        do {
-            if let placemark = try await locationSearch.placemark(for: completion) {
-                print("Selected: \(placemark.name ?? "Unknown location")")
-                print("Coordinates: \(placemark.coordinate)")
-            }
-        } catch {
-            print("Failed to get placemark: \(error)")
-        }
-    }
-}
-```
-
-## Basic Integration in UIKit
-
-For UIKit applications, here's a simple table view implementation:
-
-```swift
-import UIKit
-import MapKitSwiftSearch
-
-class LocationSearchViewController: UIViewController {
-    @IBOutlet weak var searchBar: UISearchBar!
-    @IBOutlet weak var tableView: UITableView!
-    
+@MainActor
+@Observable
+final class SearchModel {
     private let locationSearch = LocationSearch()
-    private var searchResults: [LocalSearchCompletion] = []
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        setupUI()
-    }
-    
-    private func setupUI() {
-        searchBar.delegate = self
-        tableView.dataSource = self
-        tableView.delegate = self
-    }
-}
+    private(set) var completions: [LocalSearchCompletion] = []
 
-// MARK: - UISearchBarDelegate
-extension LocationSearchViewController: UISearchBarDelegate {
-    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-        Task {
-            await performSearch(query: searchText)
-        }
-    }
-    
-    private func performSearch(query: String) async {
+    func queryChanged(to query: String) async {
         do {
-            let results = try await locationSearch.search(queryFragment: query)
-            await MainActor.run {
-                self.searchResults = results
-                self.tableView.reloadData()
-            }
-        } catch LocationSearchError.debounce {
-            // Search was debounced, ignore
-        } catch LocationSearchError.invalidSearchCriteria {
-            // Not enough characters, clear results
-            await MainActor.run {
-                self.searchResults = []
-                self.tableView.reloadData()
-            }
+            completions = try await locationSearch.search(queryFragment: query)
+        } catch LocationSearchError.debounce, LocationSearchError.duplicateSearchCriteria {
+            // Superseded by newer input, or the text didn't change
+        } catch is CancellationError {
+            // Superseded after the MapKit search started
         } catch {
-            print("Search error: \(error)")
+            completions = []
         }
     }
-}
 
-// MARK: - UITableViewDataSource
-extension LocationSearchViewController: UITableViewDataSource {
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return searchResults.count
-    }
-    
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "LocationCell", for: indexPath)
-        let result = searchResults[indexPath.row]
-        
-        cell.textLabel?.text = result.title
-        cell.detailTextLabel?.text = result.subTitle
-        
-        return cell
-    }
-}
-
-// MARK: - UITableViewDelegate
-extension LocationSearchViewController: UITableViewDelegate {
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-        
-        let completion = searchResults[indexPath.row]
-        Task {
-            do {
-                if let placemark = try await locationSearch.placemark(for: completion) {
-                    print("Selected: \(placemark.name ?? "Unknown location")")
-                    // Handle the selected location
-                }
-            } catch {
-                print("Failed to get placemark: \(error)")
-            }
-        }
+    func placemark(for completion: LocalSearchCompletion) async throws -> Placemark? {
+        try await locationSearch.placemark(for: completion)
     }
 }
 ```
 
-## Next Steps
+### Show and resolve the results
 
-Now that you have basic search functionality working, explore these additional capabilities:
+``LocalSearchCompletion/highlightedTitle(foregroundColor:highlightColor:)`` and ``LocalSearchCompletion/highlightedSubTitle(foregroundColor:highlightColor:)`` color the text MapKit matched. Their default colors, light gray with a white highlight, suit only a dark background, so pass the system label colors to adapt to both appearances. ``LocationSearch/placemark(for:)`` resolves the completion the user picks. On iOS, `.searchable` needs a navigation container to show its search field.
 
-- **<doc:BasicSearchFunctionality>** - Learn about different search patterns and options
-- **<doc:WorkingWithSearchResults>** - Discover how to highlight search terms and handle selections
-- **<doc:ErrorHandling>** - Understand the different error scenarios and how to handle them
-- **<doc:AdvancedUsage>** - Explore customization options, debouncing, and performance optimization
-- **<doc:PlatformDifferences>** - Learn about iOS and macOS specific features
+```swift
+import MapKitSwiftSearch
+import SwiftUI
 
-## Requirements
+struct SearchView: View {
+    @State private var model = SearchModel()
+    @State private var query = ""
 
-- iOS 26.0+ or macOS 26.0+
-- Swift 6.4+
-- Xcode 27.0+
+    var body: some View {
+        NavigationStack {
+            List(model.completions) { completion in
+                Button {
+                    Task {
+                        if let placemark = try? await model.placemark(for: completion) {
+                            print(placemark.name ?? "", placemark.coordinate)
+                        }
+                    }
+                } label: {
+                    CompletionRow(completion: completion)
+                }
+            }
+            .searchable(text: $query)
+            .task(id: query) {
+                await model.queryChanged(to: query)
+            }
+        }
+    }
+}
 
-The package uses strict concurrency checking and requires the latest Swift concurrency features for optimal performance and safety.
+struct CompletionRow: View {
+    let completion: LocalSearchCompletion
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text(completion.highlightedTitle(foregroundColor: Self.unmatchedColor, highlightColor: Self.matchedColor))
+            Text(completion.highlightedSubTitle(foregroundColor: Self.unmatchedColor, highlightColor: Self.matchedColor))
+                .font(.caption)
+        }
+    }
+
+    #if os(iOS)
+    private static let unmatchedColor = UIColor.secondaryLabel
+    private static let matchedColor = UIColor.label
+    #else
+    private static let unmatchedColor = NSColor.secondaryLabelColor
+    private static let matchedColor = NSColor.labelColor
+    #endif
+}
+```
+
+`.task(id:)` cancels the previous task when the text changes, but that cancellation doesn't reach ``LocationSearch``; the newer call is what supersedes the older one.

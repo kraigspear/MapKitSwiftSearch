@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-Change-control rules live in [AGENTS.md](AGENTS.md) and apply here too.
+Before changing public API or documentation, read [AGENTS.md](AGENTS.md): it says where each documentation fact lives and how API changes are released. Its rules apply here too.
 
 ## Project Overview
 

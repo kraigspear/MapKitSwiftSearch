@@ -1,24 +1,11 @@
 import MapKit
 
-/// A structure that represents a geographic location with associated address information.
-///
-/// `Placemark` provides a lightweight wrapper around `MKMapItem` that conforms to `Sendable`,
-/// making it safe to pass between concurrent contexts. It stores location coordinates and
-/// formatted address strings.
-///
-/// Example of creating a Placemark from an MKMapItem:
-/// ```swift
-/// let placemark = Placemark(mapItem: mapItem)
-/// print("Location: \(placemark.name ?? "Unknown")")
-/// print("Address: \(placemark.fullAddress ?? "No address")")
-/// ```
+/// A `Sendable` snapshot of a MapKit map item's location and address.
 public struct Placemark: Sendable, Equatable, Hashable {
     /// The geographic coordinates of the placemark.
     public let coordinate: CLLocationCoordinate2D
 
-    /// The name of the placemark, if any.
-    ///
-    /// This might represent a point of interest or landmark name.
+    /// The place's name, such as a business or landmark, if MapKit has one.
     public let name: String?
 
     /// The full formatted address string from `MKAddress.fullAddress`.
@@ -27,12 +14,7 @@ public struct Placemark: Sendable, Equatable, Hashable {
     /// The short formatted address string from `MKAddress.shortAddress`.
     public let shortAddress: String?
 
-    /// Creates a new placemark from an `MKMapItem` instance.
-    ///
-    /// This initializer extracts location and address data from the provided
-    /// `MKMapItem` using the `location` and `address` properties.
-    ///
-    /// - Parameter mapItem: The `MKMapItem` instance to extract data from.
+    /// Creates a placemark from a MapKit map item.
     public init(mapItem: MKMapItem) {
         coordinate = mapItem.location.coordinate
         name = mapItem.name
@@ -41,6 +23,8 @@ public struct Placemark: Sendable, Equatable, Hashable {
     }
 
     // MARK: - Equatable
+
+    // Equatable and Hashable are written by hand because CLLocationCoordinate2D conforms to neither
 
     public static func == (lhs: Placemark, rhs: Placemark) -> Bool {
         lhs.coordinate.latitude == rhs.coordinate.latitude &&
