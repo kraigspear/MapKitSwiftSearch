@@ -2,21 +2,21 @@
 import Observation
 import os
 
-/// An error that occurs during location search operations.
+/// An error that ``LocationSearch`` throws.
 public enum LocationSearchError: LocalizedError, Equatable {
-    /// Indicates that the search completion operation failed.
+    /// MapKit's search completer failed, or a placemark search returned no map item.
     case searchCompletionFailed
 
-    /// MapKit thrown error
+    /// MapKit failed while resolving a placemark.
     case mapKitError(MKError)
 
-    /// Empty, not enough characters
+    /// The query is not empty but is shorter than the minimum length.
     case invalidSearchCriteria
 
-    /// Searching the same text twice in a row
+    /// The query repeats the last query that finished its debounce.
     case duplicateSearchCriteria
 
-    /// Error thrown when a search request is debounced
+    /// A newer search started during this one's debounce delay.
     case debounce
 
     public var errorDescription: String? {
@@ -94,89 +94,40 @@ private final class MKLocalSearchAdapter: LocalSearchProtocol {
 
 // MARK: - Private Constants
 
-/// Logger instance for location search operations.
-///
-/// Uses the location search context to provide categorized logging that helps
-/// with debugging search performance, errors, and user interaction patterns.
 private let logger = LogContext.locationSearch.logger()
 
-/// A class that provides a modern Swift interface for location search operations using MapKit.
+/// Debounced, async location search over MapKit's search completer.
 ///
-/// `LocationSearch` wraps MapKit's `MKLocalSearchCompleter` to provide a more Swift-idiomatic
-/// search experience with the following benefits:
-/// - Uses structured concurrency with async/await for cleaner call sites
-/// - Provides type-safe error handling through Swift's throwing functions
-/// - Ensures thread safety through `@MainActor` attribution
-/// - Implements debouncing to prevent excessive API calls
-/// - Returns `Sendable` compliant search results for safe concurrent operations
+/// Call ``search(queryFragment:)`` as the user types, then ``placemark(for:)`` to resolve
+/// the completion they pick. A newer search supersedes an older one on the same instance,
+/// so give each search field its own `LocationSearch`.
 ///
-/// This class is particularly useful for applications that need to provide real-time
-/// location search suggestions as users type, such as address lookup or point of interest search.
-///
-/// Example usage:
 /// ```swift
-/// let searcher = LocationSearch()
-/// do {
-///     // Search for locations
-///     let results = try await searcher.search(queryFragment: "Coffee shops")
-///
-///     // Get detailed information for the first result
-///     if let firstResult = results.first {
-///         let placemark = try await searcher.placemark(for: firstResult)
-///         if let place = placemark {
-///             // Access detailed location information
-///             print("Name: \(place.name ?? "Unknown")")
-///             print("Address: \(place.fullAddress ?? "No address")")
-///             print("Coordinate: \(place.coordinate)")
-///         }
-///     }
-/// } catch LocationSearchError.debounce {
-///     // Handle debounced request
-/// } catch LocationSearchError.mapKitError(let error) {
-///     // Handle MapKit specific errors
-/// } catch {
-///     // Handle other errors
+/// let locationSearch = LocationSearch()
+/// let completions = try await locationSearch.search(queryFragment: "Apple Park")
+/// if let first = completions.first,
+///    let placemark = try await locationSearch.placemark(for: first) {
+///     print(placemark.name ?? "", placemark.coordinate)
 /// }
 /// ```
 @MainActor
 public final class LocationSearch {
     // MARK: - Configuration
 
-    /// The delay duration before executing a search after user input stops.
-    ///
-    /// This prevents excessive API calls during rapid typing by waiting for a pause
-    /// in user input before performing the actual search operation.
     private let debounceSearchDelay: Duration
-
-    /// The minimum number of characters required before initiating a search.
-    ///
-    /// Prevents searches with very short queries that are likely to produce
-    /// too many generic results or cause unnecessary API load.
     private let numberOfCharactersBeforeSearching: Int
 
     // MARK: - State
 
-    /// The most recent search query to prevent duplicate consecutive searches.
-    ///
-    /// Cached to avoid repeating identical searches when the user hasn't changed
-    /// the input, improving performance and reducing unnecessary API calls.
+    /// The last query that finished its debounce, for duplicate detection.
     private var lastSearchQuery: String?
 
     // MARK: - Concurrent Tasks
 
-    /// Type alias for search operation tasks to improve code readability.
     private typealias SearchTask = Task<[LocalSearchCompletion], Error>
 
-    /// The currently active search task, if any.
-    ///
-    /// Maintained to enable cancellation of in-flight searches when new searches
-    /// are initiated, preventing race conditions and outdated results.
+    // Unstructured tasks, held so a newer call can cancel them (Docs/adr/0001).
     private var currentSearchTask: SearchTask?
-
-    /// The active debounce delay task.
-    ///
-    /// Tracks the current debounce timer to enable cancellation when new input
-    /// arrives before the delay period expires.
     private var debounceTask: Task<Bool, Never>?
 
     private let completerFactory: () -> LocalSearchCompleterProtocol
@@ -187,32 +138,11 @@ public final class LocationSearch {
 
     // MARK: - Initialization
 
-    /// Creates a new location search instance with customizable search behavior.
-    ///
-    /// The initializer sets up the search parameters that control when and how often
-    /// searches are performed. These parameters are designed to balance responsiveness
-    /// with performance, preventing excessive API calls while maintaining a smooth user experience.
+    /// Creates a location search.
     ///
     /// - Parameters:
-    ///   - numberOfCharactersBeforeSearching: The minimum number of characters required
-    ///     before initiating a search operation. This helps optimize performance by preventing
-    ///     searches with very short queries that tend to produce generic or excessive results.
-    ///     Default value is 5 characters, which provides a good balance for most use cases.
-    ///   - debounceSearchDelay: The delay before executing a search after user input stops.
-    ///     This prevents rapid-fire searches during typing. Default is 300 milliseconds,
-    ///     which feels responsive while avoiding excessive API calls.
-    ///
-    /// Example usage:
-    /// ```swift
-    /// // Create with default settings (5 chars minimum, 300ms debounce)
-    /// let defaultSearcher = LocationSearch()
-    ///
-    /// // Create with custom settings for more responsive search
-    /// let customSearcher = LocationSearch(
-    ///     numberOfCharactersBeforeSearching: 3,
-    ///     debounceSearchDelay: .milliseconds(200)
-    /// )
-    /// ```
+    ///   - numberOfCharactersBeforeSearching: The minimum query length that reaches MapKit.
+    ///   - debounceSearchDelay: How long each search waits for a newer one before it runs.
     public convenience init(
         numberOfCharactersBeforeSearching: Int = 5,
         debounceSearchDelay: Duration = .milliseconds(300),
@@ -227,6 +157,7 @@ public final class LocationSearch {
         )
     }
 
+    /// Creates a location search whose MapKit calls and debounce clock tests can replace.
     init(
         numberOfCharactersBeforeSearching: Int,
         debounceSearchDelay: Duration,
@@ -243,21 +174,23 @@ public final class LocationSearch {
 
     // MARK: - Public Search Methods
 
-    /// Performs an asynchronous location search based on the provided query fragment.
+    /// Returns MapKit's completions for partial search text, after a debounce delay.
     ///
-    /// This method uses MapKit's local search completion to find matching locations
-    /// based on the input text. The search is debounced to prevent excessive API calls.
+    /// Call it on every change to the search text. A newer call supersedes this one; treat
+    /// ``LocationSearchError/debounce``, ``LocationSearchError/duplicateSearchCriteria``, and
+    /// `CancellationError` as "keep the current results", not as failures. Cancelling the
+    /// calling task stops neither the debounce nor the MapKit search.
     ///
-    /// - Parameter queryFragment: The search text to use for finding locations.
-    /// - Returns: An array of `LocalSearchCompletion` objects representing the search results.
-    ///           Returns an empty array if the query is empty.
+    /// - Parameter queryFragment: The text typed so far.
+    /// - Returns: MapKit's completions, or an empty array for an empty query.
     /// - Throws:
-    ///   - `LocationSearchError.debounce` if the request is debounced
-    ///   - `LocationSearchError.duplicateSearchCriteria` if searching with the same text consecutively
-    ///   - `LocationSearchError.invalidSearchCriteria` if the query length is less than required
-    ///   - `LocationSearchError.searchCompletionFailed` if the search operation fails
-    ///   - `CancellationError` if a newer call supersedes this one, including one that
-    ///     returns early for an empty or too-short query
+    ///   - ``LocationSearchError/debounce`` if a newer call starts during the debounce delay.
+    ///   - ``LocationSearchError/duplicateSearchCriteria`` if the query repeats the last one to
+    ///     finish its debounce, even when empty. A search already running for it continues.
+    ///   - ``LocationSearchError/invalidSearchCriteria`` if the query is shorter than the minimum length.
+    ///   - ``LocationSearchError/searchCompletionFailed`` if MapKit's completer fails.
+    ///   - `CancellationError` if a newer call with a different query, even an empty or too-short
+    ///     one, finishes its debounce while this call's MapKit search is running.
     public func search(queryFragment: String) async throws -> [LocalSearchCompletion] {
         debounceTask?.cancel()
 
@@ -274,44 +207,35 @@ public final class LocationSearch {
         }
         debounceTask = newDebounceTask
 
-        // Ensure the debounce period completed successfully
-        // If the task was cancelled or failed, throw debounce error
         guard await newDebounceTask.value else {
             throw LocationSearchError.debounce
         }
 
         logger.debug("Debounce completed successfully, proceeding with search")
 
-        // Prevent duplicate searches for the same query to reduce API load
-        // and avoid unnecessary processing of identical requests
+        // Checked before the cancel below, so repeating the in-flight query leaves that search running
         guard lastSearchQuery != queryFragment else {
             logger.debug("Query unchanged, skipping duplicate search: \(queryFragment)")
             throw LocationSearchError.duplicateSearchCriteria
         }
 
-        // Update the last search query for future duplicate detection
         lastSearchQuery = queryFragment
 
         // Cancel before the early exits below, or the older search would deliver
         // its results after this call returns
         currentSearchTask?.cancel()
 
-        // Handle empty queries by returning empty results rather than searching
-        // This provides immediate feedback and avoids unnecessary API calls
         guard !queryFragment.isEmpty else {
             logger.debug("Empty query provided, returning empty results")
             return []
         }
 
-        // Enforce minimum character requirement to ensure meaningful search results
-        // Short queries typically produce too many generic results
         guard queryFragment.count >= numberOfCharactersBeforeSearching else {
             let minimumCharacters = numberOfCharactersBeforeSearching
             logger.debug("Query too short (\(queryFragment.count) chars, need \(minimumCharacters))")
             throw LocationSearchError.invalidSearchCriteria
         }
 
-        // Create and track the new search task
         let task = SearchTask {
             try await performSearch(queryFragment: queryFragment)
         }
@@ -329,38 +253,23 @@ public final class LocationSearch {
         return try searchResult.get()
     }
 
-    /// Retrieves detailed placemark information for a given search completion result.
+    /// Resolves a search completion to a placemark.
     ///
-    /// This method performs a secondary search using MapKit's MKLocalSearch to obtain
-    /// detailed location information including coordinates, address components, and
-    /// other metadata. It converts the completion's title and subtitle into a natural
-    /// language query for the detailed search.
+    /// Runs a new MapKit search for the completion's title and subtitle, so the result is
+    /// MapKit's first match for that text. Cancelling the calling task doesn't cancel the search.
     ///
-    /// - Parameter searchCompletion: The search completion result to get detailed information for.
-    /// - Returns: A `Placemark` object containing detailed location information if found,
-    ///           nil if no detailed information is available.
+    /// - Parameter searchCompletion: A completion from ``search(queryFragment:)``.
+    /// - Returns: The placemark for MapKit's first match. Currently never `nil`: when MapKit
+    ///   finds no match, this throws ``LocationSearchError/searchCompletionFailed``.
     /// - Throws:
-    ///   - `LocationSearchError.mapKitError` if MapKit encounters an error during the search
-    ///   - `LocationSearchError.searchCompletionFailed` if the operation fails or returns invalid data
-    ///
-    /// Example usage:
-    /// ```swift
-    /// let completion: LocalSearchCompletion = // ... from search results
-    /// do {
-    ///     if let placemark = try await searcher.placemark(for: completion) {
-    ///         print("Coordinates: \(placemark.coordinate)")
-    ///         print("Address: \(placemark.fullAddress ?? "Unknown")")
-    ///     }
-    /// } catch {
-    ///     // Handle error
-    /// }
-    /// ```
+    ///   - ``LocationSearchError/mapKitError(_:)`` if MapKit fails with an `MKError`.
+    ///   - ``LocationSearchError/searchCompletionFailed`` if MapKit returns no map item.
+    ///   - Any other error MapKit reports, unchanged.
     public func placemark(for searchCompletion: LocalSearchCompletion) async throws -> Placemark? {
         try await withCheckedThrowingContinuation { continuation in
             let localSearch = localSearchFactory(searchCompletion)
 
             localSearch.start { response, error in
-                // Handle any errors from the MapKit search operation
                 if let error {
                     if let mkError = error as? MKError {
                         logger.error("MapKit error during placemark search: \(mkError)")
@@ -371,7 +280,6 @@ public final class LocationSearch {
                     }
                     return
                 }
-                // Validate that we received a response from MapKit
                 // MapKit guarantees either error or response will be non-nil
                 guard let response else {
                     logger.error("MapKit returned neither error nor response for: \(searchCompletion)")
@@ -379,14 +287,12 @@ public final class LocationSearch {
                     return
                 }
 
-                // Extract the first map item from the response
                 guard let mapItem = response.mapItems.first else {
                     logger.error("No map item found in search response for: \(searchCompletion)")
                     continuation.resume(throwing: LocationSearchError.searchCompletionFailed)
                     return
                 }
 
-                // Convert to our Sendable Placemark type
                 continuation.resume(returning: Placemark(mapItem: mapItem))
             }
         }
@@ -394,24 +300,15 @@ public final class LocationSearch {
 
     // MARK: - Private Search Implementation
 
-    /// Performs the actual search operation using MapKit's search completer.
+    /// Runs one MapKit completer search for the query.
     ///
-    /// This method creates a new search completer for each search operation to avoid
-    /// continuation conflicts that could occur when reusing delegate-based objects
-    /// across multiple concurrent operations. The approach ensures thread safety
-    /// and proper cleanup of MapKit resources.
+    /// Each call gets its own completer, handler, and cancellation state, so a late delegate
+    /// callback can only resume its own search's continuation.
     ///
-    /// The method uses withTaskCancellationHandler to properly cancel MapKit operations
-    /// when the Swift concurrency task is cancelled, preventing resource leaks and
-    /// ensuring responsive cancellation behavior.
-    ///
-    /// - Parameter queryFragment: The search query string to search for.
-    /// - Returns: An array of search completion results matching the query.
-    /// - Throws: LocationSearchError if the search fails or is cancelled.
+    /// - Throws: `LocationSearchError.searchCompletionFailed` if the completer fails, or
+    ///   `CancellationError` if the task is cancelled before MapKit answers.
     @MainActor
     private func performSearch(queryFragment: String) async throws -> [LocalSearchCompletion] {
-        // Create fresh instances for each search to prevent delegate callback conflicts
-        // This approach ensures that concurrent searches don't interfere with each other
         let searchCompleter = completerFactory()
         let localSearchCompleterHandler = LocalSearchCompleterHandler()
         searchCompleter.delegate = localSearchCompleterHandler
@@ -435,14 +332,12 @@ public final class LocationSearch {
                     }
                 }
 
-                // Initiate the MapKit search by setting the query fragment
-                // This triggers the delegate callbacks asynchronously
+                // Setting the query fragment starts MapKit's search
                 logger.debug("Starting MapKit search for: \(queryFragment)")
                 searchCompleter.queryFragment = queryFragment
             }
         } onCancel: {
-            // Ensure MapKit resources are properly cleaned up on cancellation
-            // This prevents the completer from continuing to work in the background
+            // onCancel isn't main-actor isolated, so hop to reach the cancellation state
             logger.debug("Cancelling MapKit search for: \(queryFragment)")
             Task { @MainActor in
                 cancellationState.cancel()
@@ -453,20 +348,9 @@ public final class LocationSearch {
 
 // MARK: - Private Delegate Handler
 
-/// A delegate handler class for managing `MKLocalSearchCompleter` callbacks.
-///
-/// This class bridges MapKit's delegate-based API with Swift's modern async/await
-/// concurrency model. It converts the traditional delegate callbacks into a
-/// completion handler pattern that can be easily integrated with Swift concurrency.
-///
-/// The handler is designed to be used once per search operation and then discarded,
-/// which prevents issues with delegate callback conflicts when multiple searches
-/// are performed concurrently.
+/// Forwards one search's completer callbacks to its continuation, mapping every failure
+/// to `LocationSearchError.searchCompletionFailed`.
 private final class LocalSearchCompleterHandler: LocalSearchCompleterDelegate {
-    /// The completion handler to call when search results are available.
-    ///
-    /// This closure bridges the delegate callbacks to the async/await continuation,
-    /// enabling the search operation to return results through Swift concurrency.
     var completionHandler: ((Result<[LocalSearchCompletion], Error>) -> Void)?
 
     func completerDidUpdateResults(_ results: [LocalSearchCompletion]) {
@@ -479,6 +363,7 @@ private final class LocalSearchCompleterHandler: LocalSearchCompleterDelegate {
     }
 }
 
+/// Resumes a search's continuation exactly once, whether MapKit answers or the task is cancelled first.
 @MainActor
 private final class SearchCancellationState: @unchecked Sendable {
     private var hasResumed = false
@@ -512,18 +397,12 @@ private final class SearchCancellationState: @unchecked Sendable {
 
 // MARK: - Private Extensions
 
-/// Private extension to convert LocalSearchCompletion to MKLocalSearch.
 private extension LocalSearchCompletion {
-    /// Creates an MKLocalSearch configured with this completion's information.
+    /// A text search for this completion's title and subtitle.
     ///
-    /// This method combines the title and subtitle of the search completion to create
-    /// a natural language query for detailed location lookup. The combined text
-    /// provides MapKit with enough context to return detailed placemark information.
-    ///
-    /// - Returns: A configured MKLocalSearch ready to perform a detailed location search.
+    /// The snapshot no longer holds MapKit's completion to search with (Docs/adr/0002).
     func localSearch() -> MKLocalSearch {
         let request = MKLocalSearch.Request()
-        // Combine title and subtitle for the most comprehensive search query
         request.naturalLanguageQuery = "\(title) \(subTitle)".trimmingCharacters(in: .whitespaces)
         return .init(request: request)
     }
