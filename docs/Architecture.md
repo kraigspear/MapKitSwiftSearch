@@ -37,7 +37,7 @@ classDiagram
         +subTitle: String
         +titleHighlightRange: HighlightRange?
         +subtitleHighlightRange: HighlightRange?
-        +init(MKLocalSearchCompletion)
+        ~init(MKLocalSearchCompletion)
         +highlightedTitle() -> AttributedString
         +highlightedSubTitle() -> AttributedString
     }
@@ -45,22 +45,16 @@ classDiagram
     class Placemark {
         +coordinate: CLLocationCoordinate2D
         +name: String?
-        +thoroughfare: String?
-        +subThoroughfare: String?
-        +locality: String?
-        +administrativeArea: String?
-        +postalCode: String?
-        +countryCode: String?
-        +countryName: String?
-        +init(placemark: MKPlacemark)
-        +toMKPlacemark() -> MKPlacemark
+        +fullAddress: String?
+        +shortAddress: String?
+        +init(mapItem: MKMapItem)
     }
     
     class HighlightRange {
         -location: Int
         -length: Int
         +init(nsRange: NSRange)
-        +init(nsValue: NSValue)
+        ~init(nsValue: NSValue)
         +toAttributedStringRange(in: AttributedString) -> Range<AttributedString.Index>?
     }
     
@@ -73,19 +67,28 @@ classDiagram
         +debounce
     }
     
+    class MKLocalSearchCompleterAdapter {
+        -completer: MKLocalSearchCompleter
+        +delegate: LocalSearchCompleterDelegate?
+        +queryFragment: String
+        +cancel()
+    }
+
     class LocalSearchCompleterHandler {
-        -completionHandler: ((Result<[LocalSearchCompletion], Error>) -> Void)?
-        +completerDidUpdateResults(MKLocalSearchCompleter)
-        +completer(MKLocalSearchCompleter, didFailWithError: Error)
+        +completionHandler: ((Result<[LocalSearchCompletion], Error>) -> Void)?
+        +completerDidUpdateResults([LocalSearchCompletion])
+        +completerDidFail(with: Error)
     }
     
     LocationSearch --> LocalSearchCompletion : returns
     LocationSearch --> Placemark : returns
     LocationSearch --> LocationSearchError : throws
-    LocationSearch --> LocalSearchCompleterHandler : uses
+    LocationSearch --> MKLocalSearchCompleterAdapter : creates per search
+    LocationSearch --> LocalSearchCompleterHandler : creates per search
+    MKLocalSearchCompleterAdapter --> LocalSearchCompleterHandler : reports to
     LocalSearchCompletion --> HighlightRange : contains
-    LocalSearchCompletion --> MKLocalSearchCompletion : wraps
-    Placemark --> MKPlacemark : wraps
+    LocalSearchCompletion --> MKLocalSearchCompletion : snapshots
+    Placemark --> MKMapItem : snapshots
 
     style LocationSearch fill:#2d3748,stroke:#4a5568,stroke-width:2px,color:#ffffff
     style LocalSearchCompletion fill:#2b6cb1,stroke:#1a365d,stroke-width:2px,color:#ffffff
@@ -93,7 +96,10 @@ classDiagram
     style HighlightRange fill:#805ad5,stroke:#553c9a,stroke-width:2px,color:#ffffff
     style LocationSearchError fill:#e53e3e,stroke:#c53030,stroke-width:2px,color:#ffffff
     style LocalSearchCompleterHandler fill:#ed8936,stroke:#c05621,stroke-width:2px,color:#ffffff
+    style MKLocalSearchCompleterAdapter fill:#ed8936,stroke:#c05621,stroke-width:2px,color:#ffffff
 ```
+
+`~` marks internal members. `MKLocalSearchCompleterAdapter` and `MKLocalSearchAdapter` sit behind internal protocols (`LocalSearchCompleterProtocol`, `LocalSearchProtocol`) so tests can replace MapKit.
 
 ## Key Architectural Decisions
 
@@ -114,22 +120,41 @@ classDiagram
 
 ### 2. Task-Based Cancellation Strategy
 
-**Decision**: Each search operation creates a new `Task` that can be cancelled independently.
+**Decision**: Each search operation creates a new `Task` that can be cancelled independently. A newer call cancels the in-flight search once its own debounce ends, and the superseded call throws `CancellationError`.
 
 **Rationale**:
 - Prevents resource waste when users type quickly and cancel previous searches
-- Provides clean cancellation semantics with Swift's structured concurrency
+- Provides clean cancellation semantics through `Task` handles
 - Eliminates callback-based complexity from the MapKit delegate pattern
-- Enables proper error handling for cancelled operations
+- A superseded caller never receives stale results, so it can't overwrite newer ones
 
 **Implementation Details**:
 ```swift
+lastSearchQuery = queryFragment
+
+// Cancel before the early exits below, or the older search would deliver
+// its results after this call returns
 currentSearchTask?.cancel()
+
+guard !queryFragment.isEmpty else { return [] }
+// ... minimum-length guard ...
+
 let task = SearchTask {
     try await performSearch(queryFragment: queryFragment)
 }
 currentSearchTask = task
+
+let searchResult = await task.result
+
+// MapKit's answer can resume the task before its cancellation handler runs,
+// so a superseded search can still finish with results or a MapKit error
+guard !task.isCancelled else {
+    throw CancellationError()
+}
+return try searchResult.get()
 ```
+
+The cancel sits after the duplicate-query guard, so repeating the in-flight query leaves that search running.
 
 ### 3. New MKLocalSearchCompleter Per Search
 
@@ -145,7 +170,7 @@ currentSearchTask = task
 
 ### 4. Debouncing Strategy
 
-**Decision**: Implement debouncing at the API level using Swift's `Task.sleep`.
+**Decision**: Implement debouncing at the API level using `Task.sleep`, injected as `debounceSleep` so tests control when a debounce ends.
 
 **Rationale**:
 - Reduces unnecessary API calls when users are actively typing
@@ -155,11 +180,19 @@ currentSearchTask = task
 
 **Implementation**:
 ```swift
-debounceTask = Task {
-    try await Task.sleep(for: debounceSearchDelay)
-    return true
+debounceTask?.cancel()
+
+let newDebounceTask = Task {
+    do {
+        try await debounceSleep(debounceSearchDelay)
+        return true
+    } catch {
+        return false
+    }
 }
-guard await debounceTask.value else {
+debounceTask = newDebounceTask
+
+guard await newDebounceTask.value else {
     throw LocationSearchError.debounce
 }
 ```
@@ -215,29 +248,39 @@ PlatformSpecific/
 
 The package uses a comprehensive error handling approach:
 
+`search(queryFragment:)` checks in this order:
+
 ```mermaid
 graph TD
-    A[User Input] --> B{Validation}
-    B -->|Valid| C[Debounce Check]
-    B -->|Invalid| D[LocationSearchError.invalidSearchCriteria]
-    C -->|Debounced| E[LocationSearchError.debounce]
-    C -->|Not Debounced| F[Search Operation]
-    F -->|Success| G[Return Results]
-    F -->|MapKit Error| H[LocationSearchError.mapKitError]
-    F -->|Generic Failure| I[LocationSearchError.searchCompletionFailed]
+    A[search queryFragment] --> B{Debounce}
+    B -->|Newer call arrived| E[LocationSearchError.debounce]
+    B -->|Delay elapsed| C{Same as last query?}
+    C -->|Yes| H[LocationSearchError.duplicateSearchCriteria]
+    C -->|No| J{Empty?}
+    J -->|Yes| K[Return empty array]
+    J -->|No| L{Shorter than minimum?}
+    L -->|Yes| D[LocationSearchError.invalidSearchCriteria]
+    L -->|No| F[MapKit search]
+    F -->|Results| G[Return results]
+    F -->|Completer failure| I[LocationSearchError.searchCompletionFailed]
+    F -->|Superseded by a newer call| M[CancellationError]
 
     style A fill:#e2e8f0,stroke:#2d3748,stroke-width:2px,color:#2d3748
     style G fill:#38a169,stroke:#2f855a,stroke-width:2px,color:#ffffff
+    style K fill:#38a169,stroke:#2f855a,stroke-width:2px,color:#ffffff
     style D fill:#e53e3e,stroke:#c53030,stroke-width:2px,color:#ffffff
     style E fill:#e53e3e,stroke:#c53030,stroke-width:2px,color:#ffffff
     style H fill:#e53e3e,stroke:#c53030,stroke-width:2px,color:#ffffff
     style I fill:#e53e3e,stroke:#c53030,stroke-width:2px,color:#ffffff
+    style M fill:#e53e3e,stroke:#c53030,stroke-width:2px,color:#ffffff
 ```
+
+`placemark(for:)` throws `LocationSearchError.mapKitError` for an `MKError`, `LocationSearchError.searchCompletionFailed` when MapKit returns no response or no map items, and rethrows any other error unchanged.
 
 ### Error Categories
 
-1. **User Input Errors**: Invalid or insufficient search criteria
-2. **Operational Errors**: Debouncing and duplicate request prevention  
+1. **User Input Errors**: Query shorter than the minimum
+2. **Operational Errors**: Debounce, duplicate query, and superseded searches (`CancellationError`)
 3. **System Errors**: MapKit failures and network issues
 4. **Logic Errors**: Unexpected states in search completion
 
@@ -292,7 +335,7 @@ The architecture supports future enhancements:
 
 The design facilitates comprehensive testing:
 
-1. **Dependency Injection**: Core components can be mocked for unit testing
+1. **Dependency Injection**: The internal initializer takes a completer factory, a local-search factory, and `debounceSleep`; `LocationSearchUnitTests` drives search with fakes through them
 2. **Error Simulation**: The error handling system supports comprehensive error scenario testing
 3. **Concurrency Testing**: Task-based operations can be tested for proper cancellation behavior
 4. **Platform Testing**: Platform-specific code is isolated for targeted testing

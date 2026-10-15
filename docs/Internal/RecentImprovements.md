@@ -4,6 +4,8 @@
 
 This document chronicles the recent improvements and bug fixes made to MapKitSwiftSearch, providing context about what problems were solved and why specific solutions were chosen. Understanding these changes helps maintain code quality and informs future development decisions.
 
+Code samples show the code as of each change. For the current design, see [Architecture.md](../Architecture.md) and [ImplementationDetails.md](ImplementationDetails.md).
+
 ## Major Bug Fix: Completer Continuation Conflicts (June 2025)
 
 ### Problem Identified
@@ -249,30 +251,25 @@ func verifyHighlightedSubTitleUsesCorrectRange() throws {
 
 ### Documentation Structure Enhancement
 
-Recent improvements include organizing documentation into a clear hierarchy:
+User documentation lives only in the DocC catalog. `docs/` holds design notes for contributors:
 
 ```
+Sources/MapKitSwiftSearch/Documentation.docc/   # User guides and API reference
 docs/
 ├── Architecture.md              # High-level design overview
-├── Components/                  # Individual component documentation
-│   ├── LocationSearch.md
-│   ├── LocalSearchCompletion.md
-│   ├── Placemark.md
-│   └── HighlightRange.md
-├── Guides/                      # Usage examples and tutorials
 ├── Internal/                    # Implementation details
 │   ├── ImplementationDetails.md
-│   └── RecentImprovements.md
+│   ├── RecentImprovements.md
+│   └── TestingStrategies.md
 └── Diagrams/                    # Visual documentation
     └── SearchFlowSequence.md
 ```
 
 ### Why This Organization
 
-1. **Separation of Concerns**: Different documentation types are clearly separated
-2. **Discoverability**: Easy to find specific information
-3. **Maintainability**: Updates can be made to specific sections without affecting others
-4. **Comprehensive Coverage**: Both public APIs and internal implementation are documented
+1. **One Source for Users**: `docs/` once carried its own guides and per-type API pages. They duplicated DocC, drifted from the API (they still listed `Placemark` fields removed in favor of `fullAddress` and `shortAddress`), and reviews missed it. They were removed in KLI-247
+2. **Separation of Concerns**: User-facing guides and contributor design notes don't mix
+3. **Maintainability**: An API change updates the symbol docs and DocC articles; design notes change only when the design does
 
 ## Lessons Learned
 

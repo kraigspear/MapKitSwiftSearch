@@ -137,7 +137,7 @@ The defaults, light gray with a white highlight, suit a dark background. Pass `f
 
 ## Documentation
 
-Guides and API reference live in the [DocC catalog](Sources/MapKitSwiftSearch/Documentation.docc). To browse them in Xcode, open the package and choose **Product > Build Documentation**. Design notes for contributors are in [docs/](docs/).
+Guides and API reference live only in the [DocC catalog](Sources/MapKitSwiftSearch/Documentation.docc). To browse them in Xcode, open the package and choose **Product > Build Documentation**. Design notes for contributors start at [docs/Architecture.md](docs/Architecture.md).
 
 ## Development
 
