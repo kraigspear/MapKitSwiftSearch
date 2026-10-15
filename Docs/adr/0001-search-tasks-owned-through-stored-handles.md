@@ -10,8 +10,8 @@ Callers invoke `LocationSearch.search(queryFragment:)` on every keystroke, each 
 
 A newer call supersedes an older one by these rules, in the order `search(queryFragment:)` applies them:
 
-1. Every call cancels the previous debounce on entry, so the older call throws `LocationSearchError.debounce`.
-2. After its own debounce, a call repeating the previous query throws `.duplicateSearchCriteria` before it cancels anything. The search already in flight for that query keeps running and delivers, which covers a user typing a character and deleting it.
+1. Every call cancels the previous call's debounce on entry. An older call still waiting out its debounce throws `LocationSearchError.debounce`; one already past its debounce is unaffected by this step.
+2. After its own debounce, a call repeating the previous query throws `.duplicateSearchCriteria` before it cancels any in-flight search. A search already running for that query keeps running and delivers, which covers a user typing a character and deleting it.
 3. A different query cancels the in-flight search before the empty-query and minimum-length exits. Otherwise the older search would deliver after the newer call returned (KLI-244).
 4. A cancelled search throws `CancellationError` even when MapKit answered first. MapKit's answer can resume the search task before its cancellation handler runs, so `search` checks `task.isCancelled` after awaiting the result.
 
