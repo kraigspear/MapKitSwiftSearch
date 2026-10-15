@@ -40,7 +40,7 @@ final class SearchModel {
 
 ### Show and resolve the results
 
-``LocalSearchCompletion/highlightedTitle(foregroundColor:highlightColor:)`` and ``LocalSearchCompletion/highlightedSubTitle(foregroundColor:highlightColor:)`` color the text MapKit matched. ``LocationSearch/placemark(for:)`` resolves the completion the user picks.
+``LocalSearchCompletion/highlightedTitle(foregroundColor:highlightColor:)`` and ``LocalSearchCompletion/highlightedSubTitle(foregroundColor:highlightColor:)`` color the text MapKit matched. Their default colors, light gray with a white highlight, suit only a dark background, so pass the system label colors to adapt to both appearances. ``LocationSearch/placemark(for:)`` resolves the completion the user picks. On iOS, `.searchable` needs a navigation container to show its search field.
 
 ```swift
 import MapKitSwiftSearch
@@ -51,26 +51,44 @@ struct SearchView: View {
     @State private var query = ""
 
     var body: some View {
-        List(model.completions) { completion in
-            Button {
-                Task {
-                    if let placemark = try? await model.placemark(for: completion) {
-                        print(placemark.name ?? "", placemark.coordinate)
+        NavigationStack {
+            List(model.completions) { completion in
+                Button {
+                    Task {
+                        if let placemark = try? await model.placemark(for: completion) {
+                            print(placemark.name ?? "", placemark.coordinate)
+                        }
                     }
-                }
-            } label: {
-                VStack(alignment: .leading) {
-                    Text(completion.highlightedTitle())
-                    Text(completion.highlightedSubTitle())
-                        .font(.caption)
+                } label: {
+                    CompletionRow(completion: completion)
                 }
             }
-        }
-        .searchable(text: $query)
-        .task(id: query) {
-            await model.queryChanged(to: query)
+            .searchable(text: $query)
+            .task(id: query) {
+                await model.queryChanged(to: query)
+            }
         }
     }
+}
+
+struct CompletionRow: View {
+    let completion: LocalSearchCompletion
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text(completion.highlightedTitle(foregroundColor: Self.unmatchedColor, highlightColor: Self.matchedColor))
+            Text(completion.highlightedSubTitle(foregroundColor: Self.unmatchedColor, highlightColor: Self.matchedColor))
+                .font(.caption)
+        }
+    }
+
+    #if os(iOS)
+    private static let unmatchedColor = UIColor.secondaryLabel
+    private static let matchedColor = UIColor.label
+    #else
+    private static let unmatchedColor = NSColor.secondaryLabelColor
+    private static let matchedColor = NSColor.labelColor
+    #endif
 }
 ```
 
