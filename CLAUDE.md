@@ -31,7 +31,12 @@ swiftformat .
 
 # Detect unused code with Periphery
 ./scan.sh
+
+# Compile every Swift snippet in README.md against the package
+scripts/check-readme-snippets.sh
 ```
+
+CI (`.github/workflows/ci.yml`) runs build, test, and the README snippet check on every PR and push to `main`.
 
 ## Conventions
 
