@@ -1,6 +1,6 @@
 import MapKit
 
-/// A `Sendable` snapshot of a MapKit map item's location and address.
+/// A `Sendable` snapshot of a MapKit map item's location, address, and time zone.
 public struct Placemark: Sendable, Equatable, Hashable {
     /// The geographic coordinates of the placemark.
     public let coordinate: CLLocationCoordinate2D
@@ -14,12 +14,16 @@ public struct Placemark: Sendable, Equatable, Hashable {
     /// The short formatted address string from `MKAddress.shortAddress`.
     public let shortAddress: String?
 
+    /// The place's time zone from `MKMapItem.timeZone`, or `nil` when MapKit gives none.
+    public let timeZone: TimeZone?
+
     /// Creates a placemark from a MapKit map item.
     public init(mapItem: MKMapItem) {
         coordinate = mapItem.location.coordinate
         name = mapItem.name
         fullAddress = mapItem.address?.fullAddress
         shortAddress = mapItem.address?.shortAddress
+        timeZone = mapItem.timeZone
     }
 
     // MARK: - Equatable
@@ -31,7 +35,8 @@ public struct Placemark: Sendable, Equatable, Hashable {
             lhs.coordinate.longitude == rhs.coordinate.longitude &&
             lhs.name == rhs.name &&
             lhs.fullAddress == rhs.fullAddress &&
-            lhs.shortAddress == rhs.shortAddress
+            lhs.shortAddress == rhs.shortAddress &&
+            lhs.timeZone == rhs.timeZone
     }
 
     // MARK: - Hashable
@@ -42,5 +47,6 @@ public struct Placemark: Sendable, Equatable, Hashable {
         hasher.combine(name)
         hasher.combine(fullAddress)
         hasher.combine(shortAddress)
+        hasher.combine(timeZone)
     }
 }
