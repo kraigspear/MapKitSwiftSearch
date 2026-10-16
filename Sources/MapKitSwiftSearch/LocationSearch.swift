@@ -55,12 +55,18 @@ protocol LocalSearchProtocol: AnyObject {
 /// Make one adapter per search: a completer reused for a newer fragment can still deliver
 /// results for an older one.
 @MainActor
-private final class MKLocalSearchCompleterAdapter: NSObject, LocalSearchCompleterProtocol {
-    private let completer = MKLocalSearchCompleter()
+final class MKLocalSearchCompleterAdapter: NSObject, LocalSearchCompleterProtocol {
+    private let completer: MKLocalSearchCompleter
 
     /// Taken by whichever comes first, MapKit's answer or the task's cancellation, so the
     /// search resumes exactly once.
     private nonisolated let continuation = Mutex<CheckedContinuation<[LocalSearchCompletion], Error>?>(nil)
+
+    /// Tests pass a completer subclass that never reaches MapKit.
+    init(completer: MKLocalSearchCompleter = MKLocalSearchCompleter()) {
+        self.completer = completer
+        super.init()
+    }
 
     func completions(for queryFragment: String) async throws -> [LocalSearchCompletion] {
         // The completer holds its delegate weakly, so the call keeps the adapter alive until it ends
