@@ -5,27 +5,31 @@ import Testing
 
 @MainActor
 struct LocationSearchUnitTests {
+    /// Answers a search with completions or an error when the test says so, and records cancellation.
+    @MainActor
     final class FakeSearchCompleter: LocalSearchCompleterProtocol {
-        weak var delegate: LocalSearchCompleterDelegate?
-        var onQueryFragmentSet: ((String) -> Void)?
-        var onCancel: (() -> Void)?
+        var onSearchStarted: ((String) -> Void)?
+        private(set) var cancellationCount = 0
+        private var answer: AsyncThrowingStream<[LocalSearchCompletion], Error>.Continuation?
 
-        var queryFragment = "" {
-            didSet {
-                onQueryFragmentSet?(queryFragment)
+        func completions(for queryFragment: String) async throws -> [LocalSearchCompletion] {
+            let (answers, answer) = AsyncThrowingStream<[LocalSearchCompletion], Error>.makeStream()
+            self.answer = answer
+            onSearchStarted?(queryFragment)
+            // The stream ends without an answer when the task is cancelled
+            for try await completions in answers {
+                return completions
             }
-        }
-
-        func cancel() {
-            onCancel?()
+            cancellationCount += 1
+            throw CancellationError()
         }
 
         func sendResults(_ results: [LocalSearchCompletion]) {
-            delegate?.completerDidUpdateResults(results)
+            answer?.yield(results)
         }
 
         func sendError(_ error: Error) {
-            delegate?.completerDidFail(with: error)
+            answer?.finish(throwing: error)
         }
     }
 
@@ -107,7 +111,7 @@ struct LocationSearchUnitTests {
             localSearchFactory: { _ in FakeLocalSearch() },
         )
 
-        fakeCompleter.onQueryFragmentSet = { _ in
+        fakeCompleter.onSearchStarted = { _ in
             fakeCompleter.sendError(NSError(domain: "MapKitSwiftSearchTests", code: 1))
         }
 
@@ -139,7 +143,7 @@ struct LocationSearchUnitTests {
             localSearchFactory: { _ in FakeLocalSearch() },
         )
 
-        firstCompleter.onQueryFragmentSet = { _ in
+        firstCompleter.onSearchStarted = { _ in
             Task { await signal.fire() }
         }
 
@@ -149,7 +153,7 @@ struct LocationSearchUnitTests {
 
         await signal.wait()
 
-        secondCompleter.onQueryFragmentSet = { _ in
+        secondCompleter.onSearchStarted = { _ in
             let completion = LocalSearchCompletion(
                 title: "Caledonia",
                 subTitle: "MI",
@@ -167,6 +171,34 @@ struct LocationSearchUnitTests {
         }
     }
 
+    @Test
+    func `Superseded search cancels its completer`() async throws {
+        // Given: A search for "Coffee shop" waiting on MapKit
+        let fakeCompleter = FakeSearchCompleter()
+        let signal = Signal()
+        let locationSearch = LocationSearch(
+            numberOfCharactersBeforeSearching: 5,
+            debounceSearchDelay: .milliseconds(10),
+            completerFactory: { fakeCompleter },
+            localSearchFactory: { _ in FakeLocalSearch() },
+        )
+        fakeCompleter.onSearchStarted = { _ in
+            Task { await signal.fire() }
+        }
+        let firstSearch = Task {
+            try await locationSearch.search(queryFragment: "Coffee shop")
+        }
+        await signal.wait()
+
+        // When: The query is cleared, then MapKit answers the original search
+        _ = try await locationSearch.search(queryFragment: "")
+        fakeCompleter.sendResults([Self.coffeeShopCompletion])
+        _ = await firstSearch.result
+
+        // Then: The completer saw the cancellation
+        #expect(fakeCompleter.cancellationCount == 1)
+    }
+
     /// Verifies clearing the query while MapKit is still searching leaves no stale suggestions.
     /// To replicate: type "Coffee shop" → clear the field before suggestions appear → list stays empty.
     @Test
@@ -180,7 +212,7 @@ struct LocationSearchUnitTests {
             completerFactory: { fakeCompleter },
             localSearchFactory: { _ in FakeLocalSearch() },
         )
-        fakeCompleter.onQueryFragmentSet = { _ in
+        fakeCompleter.onSearchStarted = { _ in
             Task { await signal.fire() }
         }
         let firstSearch = Task {
@@ -212,7 +244,7 @@ struct LocationSearchUnitTests {
             completerFactory: { fakeCompleter },
             localSearchFactory: { _ in FakeLocalSearch() },
         )
-        fakeCompleter.onQueryFragmentSet = { _ in
+        fakeCompleter.onSearchStarted = { _ in
             Task { await signal.fire() }
         }
         let firstSearch = Task {
@@ -255,7 +287,7 @@ struct LocationSearchUnitTests {
                 await debounceRelease.wait()
             },
         )
-        fakeCompleter.onQueryFragmentSet = { _ in
+        fakeCompleter.onSearchStarted = { _ in
             Task { await signal.fire() }
         }
         var displayedSearch: DisplayedSearch?
@@ -295,7 +327,7 @@ struct LocationSearchUnitTests {
             completerFactory: { fakeCompleter },
             localSearchFactory: { _ in FakeLocalSearch() },
         )
-        fakeCompleter.onQueryFragmentSet = { _ in
+        fakeCompleter.onSearchStarted = { _ in
             Task { await signal.fire() }
         }
         let firstSearch = Task {

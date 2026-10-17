@@ -1,6 +1,7 @@
 @preconcurrency import MapKit
 import Observation
 import os
+import Synchronization
 
 /// An error that ``LocationSearch`` throws.
 public enum LocationSearchError: LocalizedError, Equatable {
@@ -35,48 +36,75 @@ public enum LocationSearchError: LocalizedError, Equatable {
     }
 }
 
-protocol LocalSearchCompleterProtocol: AnyObject {
-    var delegate: LocalSearchCompleterDelegate? { get set }
-    var queryFragment: String { get set }
-    func cancel()
-}
-
-protocol LocalSearchCompleterDelegate: AnyObject {
-    func completerDidUpdateResults(_ results: [LocalSearchCompletion])
-    func completerDidFail(with error: Error)
+/// One MapKit completer search: a query fragment in, its completions out.
+@MainActor
+protocol LocalSearchCompleterProtocol {
+    /// Returns the completions for the query fragment.
+    ///
+    /// - Throws: `CancellationError` if the calling task is cancelled before the completer answers,
+    ///   or the completer's own error if it fails.
+    func completions(for queryFragment: String) async throws -> [LocalSearchCompletion]
 }
 
 protocol LocalSearchProtocol: AnyObject {
     func start(completionHandler: @escaping @Sendable (MKLocalSearch.Response?, Error?) -> Void)
 }
 
-private final class MKLocalSearchCompleterAdapter: NSObject, LocalSearchCompleterProtocol,
-MKLocalSearchCompleterDelegate {
-    weak var delegate: LocalSearchCompleterDelegate?
+/// Bridges one `MKLocalSearchCompleter` search to async.
+///
+/// Make one adapter per search: a completer reused for a newer fragment can still deliver
+/// results for an older one.
+@MainActor
+final class MKLocalSearchCompleterAdapter: NSObject, LocalSearchCompleterProtocol {
+    private let completer: MKLocalSearchCompleter
 
-    private let completer = MKLocalSearchCompleter()
+    /// Taken by whichever comes first, MapKit's answer or the task's cancellation, so the
+    /// search resumes exactly once.
+    private nonisolated let continuation = Mutex<CheckedContinuation<[LocalSearchCompletion], Error>?>(nil)
 
-    var queryFragment: String {
-        get { completer.queryFragment }
-        set { completer.queryFragment = newValue }
-    }
-
-    override init() {
+    /// Tests pass a completer subclass that never reaches MapKit.
+    init(completer: MKLocalSearchCompleter = MKLocalSearchCompleter()) {
+        self.completer = completer
         super.init()
-        completer.delegate = self
     }
 
-    func cancel() {
-        completer.cancel()
+    func completions(for queryFragment: String) async throws -> [LocalSearchCompletion] {
+        // The completer holds its delegate weakly, so the call keeps the adapter alive until it ends
+        defer { withExtendedLifetime(self) {} }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                self.continuation.withLock { $0 = continuation }
+                // A cancellation that came before the continuation was stored found nothing to resume
+                guard !Task.isCancelled else {
+                    resume(with: .failure(CancellationError()))
+                    return
+                }
+                completer.delegate = self
+                // Setting the query fragment starts MapKit's search
+                completer.queryFragment = queryFragment
+            }
+        } onCancel: {
+            resume(with: .failure(CancellationError()))
+            // onCancel can run on any thread, and the completer belongs to the main actor.
+            // cancel() doesn't notify the delegate.
+            Task { @MainActor in
+                self.completer.cancel()
+            }
+        }
     }
 
-    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        let mappedResults = completer.results.map { LocalSearchCompletion($0) }
-        delegate?.completerDidUpdateResults(mappedResults)
+    private nonisolated func resume(with result: Result<[LocalSearchCompletion], Error>) {
+        continuation.withLock { $0.take() }?.resume(with: result)
+    }
+}
+
+extension MKLocalSearchCompleterAdapter: MKLocalSearchCompleterDelegate {
+    nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        resume(with: .success(completer.results.map { LocalSearchCompletion($0) }))
     }
 
-    func completer(_: MKLocalSearchCompleter, didFailWithError error: Error) {
-        delegate?.completerDidFail(with: error)
+    nonisolated func completer(_: MKLocalSearchCompleter, didFailWithError error: Error) {
+        resume(with: .failure(error))
     }
 }
 
@@ -130,7 +158,7 @@ public final class LocationSearch {
     private var currentSearchTask: SearchTask?
     private var debounceTask: Task<Bool, Never>?
 
-    private let completerFactory: () -> LocalSearchCompleterProtocol
+    private let completerFactory: () -> any LocalSearchCompleterProtocol
     private let localSearchFactory: (LocalSearchCompletion) -> LocalSearchProtocol
 
     /// Injected so tests control when a debounce ends relative to MapKit's results.
@@ -161,7 +189,7 @@ public final class LocationSearch {
     init(
         numberOfCharactersBeforeSearching: Int,
         debounceSearchDelay: Duration,
-        completerFactory: @escaping () -> LocalSearchCompleterProtocol,
+        completerFactory: @escaping () -> any LocalSearchCompleterProtocol,
         localSearchFactory: @escaping (LocalSearchCompletion) -> LocalSearchProtocol,
         debounceSleep: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
     ) {
@@ -302,96 +330,23 @@ public final class LocationSearch {
 
     /// Runs one MapKit completer search for the query.
     ///
-    /// Each call gets its own completer, handler, and cancellation state, so a late delegate
-    /// callback can only resume its own search's continuation.
+    /// Each call gets a fresh completer, so a late answer for an older query can't reach it.
     ///
     /// - Throws: `LocationSearchError.searchCompletionFailed` if the completer fails, or
     ///   `CancellationError` if the task is cancelled before MapKit answers.
-    @MainActor
     private func performSearch(queryFragment: String) async throws -> [LocalSearchCompletion] {
-        let searchCompleter = completerFactory()
-        let localSearchCompleterHandler = LocalSearchCompleterHandler()
-        searchCompleter.delegate = localSearchCompleterHandler
-
-        let cancellationState = SearchCancellationState(searchCompleter: searchCompleter)
-
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                cancellationState.setContinuation(continuation)
-
-                localSearchCompleterHandler.completionHandler = { result in
-                    Task { @MainActor in
-                        switch result {
-                        case let .success(completions):
-                            logger.debug("Successfully searched \(queryFragment)")
-                            cancellationState.resume(with: .success(completions))
-                        case let .failure(error):
-                            logger.error("failed to search \(queryFragment): \(error)")
-                            cancellationState.resume(with: .failure(error))
-                        }
-                    }
-                }
-
-                // Setting the query fragment starts MapKit's search
-                logger.debug("Starting MapKit search for: \(queryFragment)")
-                searchCompleter.queryFragment = queryFragment
-            }
-        } onCancel: {
-            // onCancel isn't main-actor isolated, so hop to reach the cancellation state
-            logger.debug("Cancelling MapKit search for: \(queryFragment)")
-            Task { @MainActor in
-                cancellationState.cancel()
-            }
+        logger.debug("Starting MapKit search for: \(queryFragment)")
+        do {
+            let completions = try await completerFactory().completions(for: queryFragment)
+            logger.debug("Successfully searched \(queryFragment)")
+            return completions
+        } catch let error as CancellationError {
+            logger.debug("Cancelled MapKit search for: \(queryFragment)")
+            throw error
+        } catch {
+            logger.error("MapKit search completer failed for \(queryFragment): \(error)")
+            throw LocationSearchError.searchCompletionFailed
         }
-    }
-}
-
-// MARK: - Private Delegate Handler
-
-/// Forwards one search's completer callbacks to its continuation, mapping every failure
-/// to `LocationSearchError.searchCompletionFailed`.
-private final class LocalSearchCompleterHandler: LocalSearchCompleterDelegate {
-    var completionHandler: ((Result<[LocalSearchCompletion], Error>) -> Void)?
-
-    func completerDidUpdateResults(_ results: [LocalSearchCompletion]) {
-        completionHandler?(.success(results))
-    }
-
-    func completerDidFail(with error: Error) {
-        logger.error("MapKit search completer failed with error: \(error)")
-        completionHandler?(.failure(LocationSearchError.searchCompletionFailed))
-    }
-}
-
-/// Resumes a search's continuation exactly once, whether MapKit answers or the task is cancelled first.
-@MainActor
-private final class SearchCancellationState: @unchecked Sendable {
-    private var hasResumed = false
-    private var continuation: CheckedContinuation<[LocalSearchCompletion], Error>?
-    private let searchCompleter: LocalSearchCompleterProtocol
-
-    init(searchCompleter: LocalSearchCompleterProtocol) {
-        self.searchCompleter = searchCompleter
-    }
-
-    func setContinuation(_ continuation: CheckedContinuation<[LocalSearchCompletion], Error>) {
-        self.continuation = continuation
-    }
-
-    func resume(with result: Result<[LocalSearchCompletion], Error>) {
-        guard !hasResumed else { return }
-        hasResumed = true
-        continuation?.resume(with: result)
-    }
-
-    func cancel() {
-        guard !hasResumed else {
-            searchCompleter.cancel()
-            return
-        }
-        hasResumed = true
-        continuation?.resume(throwing: CancellationError())
-        searchCompleter.cancel()
     }
 }
 
