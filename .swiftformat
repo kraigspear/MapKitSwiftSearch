@@ -3,6 +3,9 @@
 # Indentation
 --indent 4
 
+# Match the SwiftFormat version CI pins (.github/workflows/ci.yml)
+--minversion 0.64.0
+
 # Disabled rules
 --disable wrapMultilineStatementBraces
 
