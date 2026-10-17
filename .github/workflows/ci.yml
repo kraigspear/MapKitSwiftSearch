@@ -30,6 +30,7 @@ jobs:
             || { echo "::error::Package.swift needs Swift 6.4; DEVELOPER_DIR selects another toolchain"; exit 1; }
 
       # Pinned so a new SwiftFormat release with new default rules can't turn CI red on its own.
+      # Bump --minversion in .swiftformat with SWIFTFORMAT_VERSION, so local lint runs the same rules.
       - name: Install SwiftFormat
         env:
           SWIFTFORMAT_VERSION: 0.64.0
@@ -52,3 +53,17 @@ jobs:
 
       - name: Build README snippets
         run: scripts/check-readme-snippets.sh
+
+      - name: Install Periphery
+        env:
+          PERIPHERY_VERSION: 3.8.0
+          PERIPHERY_SHA256: 07d4e286e31dd79164df39097e0b59f533c94badbe18158464a455ea88a166d7
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/periphery.zip" \
+            "https://github.com/peripheryapp/periphery/releases/download/$PERIPHERY_VERSION/periphery-$PERIPHERY_VERSION.zip"
+          echo "$PERIPHERY_SHA256  $RUNNER_TEMP/periphery.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/periphery.zip" -d "$RUNNER_TEMP/periphery"
+          echo "$RUNNER_TEMP/periphery" >> "$GITHUB_PATH"
+
+      - name: Scan for unused code
+        run: ./scan.sh
