@@ -5,8 +5,8 @@ import Testing
 struct LocationSearchTest {
     @MainActor
     struct Search {
-        @Test("Successful search")
-        func successfulSearch() async throws {
+        @Test
+        func `Successful search`() async throws {
             let locationSearch = LocationSearch()
             let localSearchCompletions = try await locationSearch.search(queryFragment: "Sheridan, In")
 
@@ -16,8 +16,8 @@ struct LocationSearchTest {
             #expect(foundLocation != nil, "Didn't find Sheridan")
         }
 
-        @Test("If a search is in progress, cancel if we get another search request")
-        func multipleSearches() async throws {
+        @Test
+        func `If a search is in progress, cancel if we get another search request`() async throws {
             let locationSearch = LocationSearch(debounceSearchDelay: .milliseconds(200))
 
             let search1 = Task {
@@ -37,8 +37,8 @@ struct LocationSearchTest {
             _ = await search1.value
         }
 
-        @Test("Results cleared when searching empty query")
-        func resultsClearedWhenSearchingEmptyQuery() async throws {
+        @Test
+        func `Results cleared when searching empty query`() async throws {
             let locationSearch = LocationSearch()
             var localSearchCompletions = try await locationSearch.search(queryFragment: "Sheridan, In")
             #expect(!localSearchCompletions.isEmpty, "Expected results")
@@ -47,8 +47,8 @@ struct LocationSearchTest {
             #expect(localSearchCompletions.isEmpty, "Results should be cleared")
         }
 
-        @Test("Not searching with less than 5 characters")
-        func notEnoughCharactersToSearch() async throws {
+        @Test
+        func `Not searching with less than 5 characters`() async throws {
             let locationSearch = LocationSearch(numberOfCharactersBeforeSearching: 5)
 
             await #expect(throws: LocationSearchError.invalidSearchCriteria) {
@@ -56,8 +56,8 @@ struct LocationSearchTest {
             }
         }
 
-        @Test("Sending the same query twice, throws error")
-        func sendSameQueryTwice() async throws {
+        @Test
+        func `Sending the same query twice, throws error`() async throws {
             let locationSearch = LocationSearch()
             _ = try await locationSearch.search(queryFragment: "Pensacola, FL")
 
@@ -66,8 +66,8 @@ struct LocationSearchTest {
             }
         }
 
-        @Test("Two searches previous gets debounce error")
-        func debounce() async throws {
+        @Test
+        func `Two searches previous gets debounce error`() async throws {
             let locationSearch = LocationSearch()
 
             let task1 = Task {
@@ -87,8 +87,8 @@ struct LocationSearchTest {
 
     @MainActor
     struct Select {
-        @Test("Fetch a placemark for a location")
-        func selectLocation() async throws {
+        @Test
+        func `Fetch a placemark for a location`() async throws {
             let locationSearch = LocationSearch()
             let localSearchCompletions = try await locationSearch.search(queryFragment: "Caledonia, Mi")
             #expect(!localSearchCompletions.isEmpty, "Expected results")

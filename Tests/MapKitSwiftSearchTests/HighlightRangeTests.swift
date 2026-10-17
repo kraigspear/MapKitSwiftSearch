@@ -13,8 +13,8 @@ private typealias PlatformColor = NSColor
 #endif
 
 struct HighlightRangeTests {
-    @Test("HighlightRange converts valid ranges")
-    func highlightRangeConvertsValidRange() throws {
+    @Test
+    func `HighlightRange converts valid ranges`() throws {
         let text = AttributedString("Coffee shops")
         let range = HighlightRange(nsRange: NSRange(location: 0, length: 6))
 
@@ -23,16 +23,16 @@ struct HighlightRangeTests {
         #expect(substring == "Coffee")
     }
 
-    @Test("HighlightRange returns nil for out-of-bounds ranges")
-    func highlightRangeOutOfBoundsReturnsNil() {
+    @Test
+    func `HighlightRange returns nil for out-of-bounds ranges`() {
         let text = AttributedString("Coffee")
         let range = HighlightRange(nsRange: NSRange(location: 0, length: 99))
 
         #expect(range.toAttributedStringRange(in: text) == nil)
     }
 
-    @Test("HighlightRange handles extended grapheme clusters")
-    func highlightRangeHandlesGraphemeClusters() throws {
+    @Test
+    func `HighlightRange handles extended grapheme clusters`() throws {
         let text = AttributedString("A🙂B")
         let range = HighlightRange(nsRange: NSRange(location: 1, length: 2))
 
@@ -41,8 +41,8 @@ struct HighlightRangeTests {
         #expect(substring == "🙂")
     }
 
-    @Test("HighlightRange allows zero-length range at end")
-    func highlightRangeAllowsZeroLengthAtEnd() throws {
+    @Test
+    func `HighlightRange allows zero-length range at end`() throws {
         let text = AttributedString("Coffee")
         let range = HighlightRange(nsRange: NSRange(location: text.characters.count, length: 0))
 
@@ -50,8 +50,8 @@ struct HighlightRangeTests {
         #expect(attributedRange.isEmpty)
     }
 
-    @Test("Verify highlightedSubTitle uses correct highlight range")
-    func verifyHighlightedSubTitleUsesCorrectRange() {
+    @Test
+    func `Verify highlightedSubTitle uses correct highlight range`() {
         #if os(iOS) || os(macOS)
         let title = "Pizza Place"
         let subTitle = "123 Main Street"

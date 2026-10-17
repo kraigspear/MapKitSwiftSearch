@@ -14,8 +14,8 @@ private typealias PlatformColor = NSColor
 
 @MainActor
 struct LocalSearchCompletionTests {
-    @Test("LocalSearchCompletion id uses title and subtitle")
-    func localSearchCompletionIdUsesTitleAndSubtitle() {
+    @Test
+    func `LocalSearchCompletion id uses title and subtitle`() {
         let completion = LocalSearchCompletion(
             title: "Cafe",
             subTitle: "123 Main Street",
@@ -26,8 +26,8 @@ struct LocalSearchCompletionTests {
         #expect(completion.id == "Cafe-123 Main Street")
     }
 
-    @Test("LocalSearchCompletion equality includes highlight ranges")
-    func localSearchCompletionEqualityIncludesHighlightRanges() {
+    @Test
+    func `LocalSearchCompletion equality includes highlight ranges`() {
         let titleRange = HighlightRange(nsRange: NSRange(location: 0, length: 2))
         let subtitleRange = HighlightRange(nsRange: NSRange(location: 4, length: 3))
 
@@ -57,8 +57,8 @@ struct LocalSearchCompletionTests {
         #expect(set.count == 2)
     }
 
-    @Test("highlightedTitle uses base color when no highlight range")
-    func highlightedTitleUsesBaseColorWhenNoHighlightRange() {
+    @Test
+    func `highlightedTitle uses base color when no highlight range`() {
         #if os(iOS) || os(macOS)
         let completion = LocalSearchCompletion(
             title: "Coffee",
@@ -83,8 +83,8 @@ struct LocalSearchCompletionTests {
         #endif
     }
 
-    @Test("highlightedSubTitle uses base color when no highlight range")
-    func highlightedSubTitleUsesBaseColorWhenNoHighlightRange() {
+    @Test
+    func `highlightedSubTitle uses base color when no highlight range`() {
         #if os(iOS) || os(macOS)
         let completion = LocalSearchCompletion(
             title: "Coffee",

@@ -37,7 +37,7 @@ swiftformat .
 scripts/check-readme-snippets.sh
 ```
 
-CI (`.github/workflows/ci.yml`) runs build, test, and the README snippet check on every PR and push to `main`.
+`.github/workflows/ci.yml` defines what CI checks on every PR and push to `main`.
 
 ## Conventions
 
