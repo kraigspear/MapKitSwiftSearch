@@ -97,8 +97,8 @@ struct LocationSearchUnitTests {
         subtitleHighlightRange: nil,
     )
 
-    @Test("Search completer errors map to searchCompletionFailed")
-    func searchCompleterErrorMapsToSearchCompletionFailed() async throws {
+    @Test
+    func `Search completer errors map to searchCompletionFailed`() async throws {
         let fakeCompleter = FakeSearchCompleter()
         let locationSearch = LocationSearch(
             numberOfCharactersBeforeSearching: 1,
@@ -122,8 +122,8 @@ struct LocationSearchUnitTests {
         }
     }
 
-    @Test("In-flight search cancels after debounce")
-    func inFlightSearchCancelsAfterDebounce() async throws {
+    @Test
+    func `In-flight search cancels after debounce`() async throws {
         let firstCompleter = FakeSearchCompleter()
         let secondCompleter = FakeSearchCompleter()
         var factoryCallCount = 0
@@ -169,8 +169,8 @@ struct LocationSearchUnitTests {
 
     /// Verifies clearing the query while MapKit is still searching leaves no stale suggestions.
     /// To replicate: type "Coffee shop" → clear the field before suggestions appear → list stays empty.
-    @Test("Empty query cancels the in-flight search")
-    func search_whenSupersededByEmptyQuery_cancelsInFlightSearch() async throws {
+    @Test
+    func `Empty query cancels the in-flight search`() async throws {
         // Given: A search for "Coffee shop" waiting on MapKit
         let fakeCompleter = FakeSearchCompleter()
         let signal = Signal()
@@ -201,8 +201,8 @@ struct LocationSearchUnitTests {
 
     /// Verifies deleting back below the minimum length while MapKit is searching leaves no stale suggestions.
     /// To replicate: type "Coffee shop" → delete back to "Co" before suggestions appear → list stays empty.
-    @Test("Too-short query cancels the in-flight search")
-    func search_whenSupersededByTooShortQuery_cancelsInFlightSearch() async throws {
+    @Test
+    func `Too-short query cancels the in-flight search`() async throws {
         // Given: A search for "Coffee shop" waiting on MapKit
         let fakeCompleter = FakeSearchCompleter()
         let signal = Signal()
@@ -235,8 +235,8 @@ struct LocationSearchUnitTests {
     /// Verifies a superseded search never shows results or an error, even when MapKit answers in the
     /// same turn the newer call cancels it.
     /// To replicate: type "Coffee shop" → clear the field just as MapKit answers → list stays empty, no error.
-    @Test("Superseded search that MapKit answers never overwrites newer results", arguments: MapKitAnswer.allCases)
-    func search_whenMapKitAnswersSupersededSearch_neverOverwritesNewerResults(mapKitAnswer: MapKitAnswer) async {
+    @Test(arguments: MapKitAnswer.allCases)
+    func `Superseded search that MapKit answers never overwrites newer results`(mapKitAnswer: MapKitAnswer) async {
         // Given: A search for "Coffee shop" waiting on MapKit, and a newer call held at its debounce
         let fakeCompleter = FakeSearchCompleter()
         let signal = Signal()
@@ -284,8 +284,8 @@ struct LocationSearchUnitTests {
 
     /// Verifies resubmitting the query already in flight still delivers its results.
     /// To replicate: type "Coffee shop" → add and delete a character before suggestions appear → suggestions appear.
-    @Test("Duplicate query leaves the in-flight search running")
-    func search_whenDuplicateOfInFlightQuery_deliversInFlightResults() async throws {
+    @Test
+    func `Duplicate query leaves the in-flight search running`() async throws {
         // Given: A search for "Coffee shop" waiting on MapKit
         let fakeCompleter = FakeSearchCompleter()
         let signal = Signal()
@@ -314,8 +314,8 @@ struct LocationSearchUnitTests {
         #expect(results == [Self.coffeeShopCompletion])
     }
 
-    @Test("Placemark maps MKError to mapKitError")
-    func placemarkMapsMapKitError() async throws {
+    @Test
+    func `Placemark maps MKError to mapKitError`() async throws {
         let fakeLocalSearch = FakeLocalSearch()
         fakeLocalSearch.onStart = { completion in
             completion(nil, MKError(.unknown))
@@ -346,8 +346,8 @@ struct LocationSearchUnitTests {
         }
     }
 
-    @Test("Placemark maps missing response to searchCompletionFailed")
-    func placemarkMapsMissingResponseToSearchCompletionFailed() async throws {
+    @Test
+    func `Placemark maps missing response to searchCompletionFailed`() async throws {
         let fakeLocalSearch = FakeLocalSearch()
         fakeLocalSearch.onStart = { completion in
             completion(nil, nil)
@@ -378,8 +378,8 @@ struct LocationSearchUnitTests {
         }
     }
 
-    @Test("Placemark maps empty map items to searchCompletionFailed")
-    func placemarkMapsEmptyMapItemsToSearchCompletionFailed() async throws {
+    @Test
+    func `Placemark maps empty map items to searchCompletionFailed`() async throws {
         let fakeLocalSearch = FakeLocalSearch()
         fakeLocalSearch.onStart = { completion in
             let response = MKLocalSearch.Response()

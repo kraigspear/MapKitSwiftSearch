@@ -5,7 +5,7 @@
 Use the domain terms defined in `GLOSSARY.md` in new code, docs, ADRs, and tickets.
 
 ## Build, Test, and Development Commands
-Use SwiftPM: `swift build` compiles the package and `swift test` runs the suite on the macOS host. Target a subset with `swift test --filter SomeTests`. `./scan.sh` runs Periphery. `scripts/check-readme-snippets.sh` compiles every Swift snippet in README.md; CI runs it with build and test. Open the package in Xcode with `xed .`.
+Use SwiftPM: `swift build` compiles the package and `swift test` runs the suite on the macOS host. Target a subset with `swift test --filter SomeTests`. `./scan.sh` runs Periphery. `scripts/check-readme-snippets.sh` compiles every Swift snippet in README.md; CI runs it with build, test, and `swiftformat --lint .`. Open the package in Xcode with `xed .`.
 
 ## Coding Style & Naming Conventions
 Format everything with `swiftformat .` (4-space indentation, explicit `self` removed, trailing commas). Keep types in PascalCase and file names matching their primary type.
