@@ -171,8 +171,8 @@ struct LocationSearchUnitTests {
         }
     }
 
-    @Test("Superseded search cancels its completer")
-    func search_whenSuperseded_cancelsItsCompleter() async throws {
+    @Test
+    func `Superseded search cancels its completer`() async throws {
         // Given: A search for "Coffee shop" waiting on MapKit
         let fakeCompleter = FakeSearchCompleter()
         let signal = Signal()

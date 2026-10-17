@@ -44,8 +44,8 @@ struct MKLocalSearchCompleterAdapterTests {
 
     /// Verifies a superseded MapKit search ends instead of hanging its caller.
     /// To replicate: type "Coffee shop" → change the query while MapKit is searching → the old search ends.
-    @Test("Cancelling a running search resumes it with CancellationError and cancels the completer", .timeLimit(.minutes(1)))
-    func cancelRunningSearch() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func `Cancelling a running search resumes it with CancellationError and cancels the completer`() async throws {
         // Given: A search waiting on MapKit
         let completer = FakeMKCompleter()
         let adapter = MKLocalSearchCompleterAdapter(completer: completer)
@@ -66,8 +66,8 @@ struct MKLocalSearchCompleterAdapterTests {
 
     /// Verifies MapKit answering after cancellation doesn't resume the search a second time.
     /// To replicate: change the query just as MapKit answers the old one → no crash.
-    @Test("MapKit answering after cancellation is ignored", .timeLimit(.minutes(1)))
-    func answerAfterCancellation() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func `MapKit answering after cancellation is ignored`() async throws {
         // Given: A search that was cancelled while waiting on MapKit
         let completer = FakeMKCompleter()
         let adapter = MKLocalSearchCompleterAdapter(completer: completer)
@@ -87,8 +87,8 @@ struct MKLocalSearchCompleterAdapterTests {
 
     /// Verifies a search cancelled before it starts never reaches MapKit.
     /// To replicate: change the query before the old search starts → MapKit sees no search for it.
-    @Test("Search already cancelled never starts the completer", .timeLimit(.minutes(1)))
-    func alreadyCancelledSearch() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func `Search already cancelled never starts the completer`() async throws {
         // Given: A search whose task is cancelled before it runs
         let completer = FakeMKCompleter()
         let adapter = MKLocalSearchCompleterAdapter(completer: completer)
@@ -105,8 +105,8 @@ struct MKLocalSearchCompleterAdapterTests {
         #expect(completer.startedFragment == nil)
     }
 
-    @Test("MapKit's results complete the search", .timeLimit(.minutes(1)))
-    func resultsCompleteSearch() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func `MapKit's results complete the search`() async throws {
         // Given: A search waiting on MapKit
         let completer = FakeMKCompleter()
         let adapter = MKLocalSearchCompleterAdapter(completer: completer)
@@ -120,8 +120,8 @@ struct MKLocalSearchCompleterAdapterTests {
         #expect(completer.cancelCount == 0)
     }
 
-    @Test("MapKit's failure fails the search with MapKit's error", .timeLimit(.minutes(1)))
-    func failureFailsSearch() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func `MapKit's failure fails the search with MapKit's error`() async throws {
         // Given: A search waiting on MapKit
         let completer = FakeMKCompleter()
         let adapter = MKLocalSearchCompleterAdapter(completer: completer)
