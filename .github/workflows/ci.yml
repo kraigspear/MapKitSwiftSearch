@@ -29,6 +29,21 @@ jobs:
           swift --version 2>&1 | grep -q "Swift version 6.4" \
             || { echo "::error::Package.swift needs Swift 6.4; DEVELOPER_DIR selects another toolchain"; exit 1; }
 
+      # Pinned so a new SwiftFormat release with new default rules can't turn CI red on its own.
+      - name: Install SwiftFormat
+        env:
+          SWIFTFORMAT_VERSION: 0.64.0
+          SWIFTFORMAT_SHA256: 95ea62625d0b898a7af870293311ae6f09e4a3147ecd900593687e4b9ab2fd98
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/swiftformat.zip" \
+            "https://github.com/nicklockwood/SwiftFormat/releases/download/$SWIFTFORMAT_VERSION/swiftformat.zip"
+          echo "$SWIFTFORMAT_SHA256  $RUNNER_TEMP/swiftformat.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/swiftformat.zip" -d "$RUNNER_TEMP/swiftformat"
+          echo "$RUNNER_TEMP/swiftformat" >> "$GITHUB_PATH"
+
+      - name: Lint
+        run: swiftformat --lint .
+
       - name: Build
         run: swift build
 

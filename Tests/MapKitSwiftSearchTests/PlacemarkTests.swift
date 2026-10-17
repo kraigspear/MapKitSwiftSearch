@@ -4,8 +4,8 @@ import Testing
 @testable import MapKitSwiftSearch
 
 struct PlacemarkTests {
-    @Test("Placemark keeps the map item's time zone")
-    func placemarkKeepsMapItemTimeZone() throws {
+    @Test
+    func `Placemark keeps the map item's time zone`() throws {
         let tokyo = try #require(TimeZone(identifier: "Asia/Tokyo"))
 
         let placemark = Placemark(mapItem: makeMapItem(timeZone: tokyo))
@@ -13,15 +13,15 @@ struct PlacemarkTests {
         #expect(placemark.timeZone == tokyo)
     }
 
-    @Test("Placemark has no time zone when the map item has none")
-    func placemarkTimeZoneIsNilWithoutMapItemTimeZone() {
+    @Test
+    func `Placemark has no time zone when the map item has none`() {
         let placemark = Placemark(mapItem: makeMapItem(timeZone: nil))
 
         #expect(placemark.timeZone == nil)
     }
 
-    @Test("Placemarks that differ only in time zone are not equal")
-    func placemarksDifferingOnlyInTimeZoneAreNotEqual() throws {
+    @Test
+    func `Placemarks that differ only in time zone are not equal`() throws {
         let tokyo = try #require(TimeZone(identifier: "Asia/Tokyo"))
         let seoul = try #require(TimeZone(identifier: "Asia/Seoul"))
 
