@@ -30,16 +30,55 @@ struct MKLocalSearchCompleterAdapterTests {
 
     struct MapKitFailure: Error, Equatable {}
 
+    /// How long a wait may take before the test fails. A dropped resume never ends its search,
+    /// and the time limit alone records an issue without ending the run.
+    private static let deadline = Duration.seconds(5)
+
     /// Starts a search and returns once the adapter has handed the fragment to the completer.
     private func startSearch(
         _ adapter: MKLocalSearchCompleterAdapter,
         on completer: FakeMKCompleter,
     ) async -> Task<[LocalSearchCompletion], Error> {
         let task = Task { try await adapter.completions(for: "Coffee shop") }
-        while completer.startedFragment == nil {
+        await waitUntil { completer.startedFragment != nil }
+        return task
+    }
+
+    /// The search's result, or `nil` if it hasn't ended by the deadline.
+    private func result(
+        of task: Task<[LocalSearchCompletion], Error>,
+    ) async -> Result<[LocalSearchCompletion], Error>? {
+        let (first, continuation) = AsyncStream.makeStream(of: Result<[LocalSearchCompletion], Error>?.self)
+        // The stream drops whichever yield comes second, so the waiter left behind by a hung search is harmless
+        Task {
+            await continuation.yield(task.result)
+            continuation.finish()
+        }
+        let timer = Task {
+            try? await Task.sleep(for: Self.deadline)
+            continuation.yield(nil)
+            continuation.finish()
+        }
+        defer { timer.cancel() }
+        for await result in first {
+            return result
+        }
+        return nil
+    }
+
+    /// Waits for the condition, recording an issue if it isn't met by the deadline.
+    private func waitUntil(
+        _ condition: () -> Bool,
+        sourceLocation: SourceLocation = #_sourceLocation,
+    ) async {
+        let end = ContinuousClock.now + Self.deadline
+        while !condition() {
+            guard ContinuousClock.now < end else {
+                Issue.record("Condition not met within \(Self.deadline)", sourceLocation: sourceLocation)
+                return
+            }
             await Task.yield()
         }
-        return task
     }
 
     /// Verifies a superseded MapKit search ends instead of hanging its caller.
@@ -55,12 +94,11 @@ struct MKLocalSearchCompleterAdapterTests {
         task.cancel()
 
         // Then: The search ends with CancellationError, and MapKit's search is cancelled
-        await #expect(throws: CancellationError.self) {
-            _ = try await task.value
+        let result = try #require(await result(of: task))
+        #expect(throws: CancellationError.self) {
+            _ = try result.get()
         }
-        while completer.cancelCount == 0 {
-            await Task.yield()
-        }
+        await waitUntil { completer.cancelCount > 0 }
         #expect(completer.cancelCount == 1)
     }
 
@@ -73,8 +111,9 @@ struct MKLocalSearchCompleterAdapterTests {
         let adapter = MKLocalSearchCompleterAdapter(completer: completer)
         let task = await startSearch(adapter, on: completer)
         task.cancel()
-        await #expect(throws: CancellationError.self) {
-            _ = try await task.value
+        let result = try #require(await result(of: task))
+        #expect(throws: CancellationError.self) {
+            _ = try result.get()
         }
 
         // When: MapKit answers anyway, with results and then with a failure
@@ -96,7 +135,7 @@ struct MKLocalSearchCompleterAdapterTests {
         task.cancel()
 
         // When: The task runs
-        let result = await task.result
+        let result = try #require(await result(of: task))
 
         // Then: It ends with CancellationError without giving the completer a fragment
         #expect(throws: CancellationError.self) {
@@ -116,7 +155,8 @@ struct MKLocalSearchCompleterAdapterTests {
         adapter.completerDidUpdateResults(completer)
 
         // Then: The search returns MapKit's results
-        #expect(try await task.value.isEmpty)
+        let result = try #require(await result(of: task))
+        #expect(try result.get().isEmpty)
         #expect(completer.cancelCount == 0)
     }
 
@@ -131,8 +171,9 @@ struct MKLocalSearchCompleterAdapterTests {
         adapter.completer(completer, didFailWithError: MapKitFailure())
 
         // Then: The search throws MapKit's error unchanged
-        await #expect(throws: MapKitFailure()) {
-            _ = try await task.value
+        let result = try #require(await result(of: task))
+        #expect(throws: MapKitFailure()) {
+            _ = try result.get()
         }
     }
 }
