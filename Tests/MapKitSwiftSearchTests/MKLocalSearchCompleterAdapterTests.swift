@@ -9,6 +9,10 @@ struct MKLocalSearchCompleterAdapterTests {
     final class FakeMKCompleter: MKLocalSearchCompleter {
         private(set) var startedFragment: String?
         private(set) var cancelCount = 0
+        /// Yields when the adapter hands over a fragment, which starts MapKit's search.
+        let starts = AsyncStream.makeStream(of: Void.self)
+        /// Yields each time the adapter cancels MapKit's search.
+        let cancels = AsyncStream.makeStream(of: Void.self)
         private var fragment = ""
 
         override var queryFragment: String {
@@ -16,6 +20,7 @@ struct MKLocalSearchCompleterAdapterTests {
             set {
                 fragment = newValue
                 startedFragment = newValue
+                starts.continuation.yield()
             }
         }
 
@@ -25,14 +30,11 @@ struct MKLocalSearchCompleterAdapterTests {
 
         override func cancel() {
             cancelCount += 1
+            cancels.continuation.yield()
         }
     }
 
     struct MapKitFailure: Error, Equatable {}
-
-    /// How long a wait may take before the test fails. A dropped resume never ends its search,
-    /// and the time limit alone records an issue without ending the run.
-    private static let deadline = Duration.seconds(5)
 
     /// Starts a search and returns once the adapter has handed the fragment to the completer.
     private func startSearch(
@@ -40,45 +42,34 @@ struct MKLocalSearchCompleterAdapterTests {
         on completer: FakeMKCompleter,
     ) async -> Task<[LocalSearchCompletion], Error> {
         let task = Task { try await adapter.completions(for: "Coffee shop") }
-        await waitUntil { completer.startedFragment != nil }
+        await waitFor(completer.starts.stream)
         return task
     }
 
-    /// The search's result, or `nil` if it hasn't ended by the deadline.
+    /// The search's result, or `nil` if the time limit cancels the test before the search ends.
+    ///
+    /// Awaiting `task.result` directly ignores the test's cancellation, so a dropped resume
+    /// would hang the run instead of failing the test.
     private func result(
         of task: Task<[LocalSearchCompletion], Error>,
     ) async -> Result<[LocalSearchCompletion], Error>? {
-        let (first, continuation) = AsyncStream.makeStream(of: Result<[LocalSearchCompletion], Error>?.self)
-        // The stream drops whichever yield comes second, so the waiter left behind by a hung search is harmless
+        let (results, continuation) = AsyncStream.makeStream(of: Result<[LocalSearchCompletion], Error>.self)
         Task {
             await continuation.yield(task.result)
             continuation.finish()
         }
-        let timer = Task {
-            try? await Task.sleep(for: Self.deadline)
-            continuation.yield(nil)
-            continuation.finish()
-        }
-        defer { timer.cancel() }
-        for await result in first {
+        for await result in results {
             return result
         }
         return nil
     }
 
-    /// Waits for the condition, recording an issue if it isn't met by the deadline.
-    private func waitUntil(
-        _ condition: () -> Bool,
-        sourceLocation: SourceLocation = #_sourceLocation,
-    ) async {
-        let end = ContinuousClock.now + Self.deadline
-        while !condition() {
-            guard ContinuousClock.now < end else {
-                Issue.record("Condition not met within \(Self.deadline)", sourceLocation: sourceLocation)
-                return
-            }
-            await Task.yield()
+    /// Waits for the fake's signal, recording an issue if the time limit cancels the test first.
+    private func waitFor(_ signal: AsyncStream<Void>, sourceLocation: SourceLocation = #_sourceLocation) async {
+        for await _ in signal {
+            return
         }
+        Issue.record("The signal never came", sourceLocation: sourceLocation)
     }
 
     /// Verifies a superseded MapKit search ends instead of hanging its caller.
@@ -98,7 +89,7 @@ struct MKLocalSearchCompleterAdapterTests {
         #expect(throws: CancellationError.self) {
             _ = try result.get()
         }
-        await waitUntil { completer.cancelCount > 0 }
+        await waitFor(completer.cancels.stream)
         #expect(completer.cancelCount == 1)
     }
 
