@@ -1,5 +1,7 @@
 # Search tasks owned through stored handles
 
+Superseded by ADR 0006: KLI-252 replaced these rules.
+
 ## Context
 
 Callers invoke `LocationSearch.search(queryFragment:)` on every keystroke, each from its own task: a SwiftUI `onChange`, a UIKit delegate callback. A newer call has to stop the older call's debounce and MapKit search. Structured concurrency only lets a parent cancel its children, and the newer call is not the older call's parent.
