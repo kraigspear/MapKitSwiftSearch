@@ -41,11 +41,6 @@ extension ContentView {
         /// Current search text input
         var searchText = "" {
             didSet {
-                let searchText = searchText
-                guard oldValue != searchText else {
-                    logger.debug("Duplicate search text: \(searchText), not searching")
-                    return
-                }
                 search(for: searchText)
             }
         }
@@ -67,9 +62,10 @@ extension ContentView {
             Task {
                 do {
                     searchResults = try await locationSearch.search(queryFragment: text)
+                } catch is CancellationError {
+                    // A newer search superseded this one, so keep the current results
                 } catch {
                     logger.error("Error searching: \(error)")
-                    searchResults = []
                 }
             }
         }

@@ -8,9 +8,10 @@ Search as the user types, highlight the matches, and resolve the pick to a place
 
 ### Search as the user types
 
-Call ``LocationSearch/search(queryFragment:)`` on every change to the text. A superseded call throws ``LocationSearchError/debounce``, or `CancellationError` if its MapKit search had already started. Repeating the previous query throws ``LocationSearchError/duplicateSearchCriteria``. All three mean "keep the current results."
+Call ``LocationSearch/search(queryFragment:)`` on every change to the text. Only the latest call returns completions; a superseded call throws `CancellationError`, which means "keep the current results." Any other error is a failure. MapKit throttles bursts of searches with `MKError.loadingThrottled`, which clears by itself, so keep the current results for that too rather than alerting.
 
 ```swift
+import MapKit
 import MapKitSwiftSearch
 import Observation
 
@@ -19,16 +20,18 @@ import Observation
 final class SearchModel {
     private let locationSearch = LocationSearch()
     private(set) var completions: [LocalSearchCompletion] = []
+    private(set) var searchError: (any Error)?
 
     func queryChanged(to query: String) async {
         do {
             completions = try await locationSearch.search(queryFragment: query)
-        } catch LocationSearchError.debounce, LocationSearchError.duplicateSearchCriteria {
-            // Superseded by newer input, or the text didn't change
+            searchError = nil
         } catch is CancellationError {
-            // Superseded after the MapKit search started
+            // A newer query superseded this one: keep the current completions
+        } catch let LocationSearchError.mapKitError(error) where error.code == .loadingThrottled {
+            // MapKit throttles bursts of searches and recovers by itself: keep the current completions
         } catch {
-            completions = []
+            searchError = error
         }
     }
 
@@ -92,4 +95,4 @@ struct CompletionRow: View {
 }
 ```
 
-`.task(id:)` cancels the previous task when the text changes, but that cancellation doesn't reach ``LocationSearch``; the newer call is what supersedes the older one.
+`.task(id:)` cancels the previous task when the text changes. ``LocationSearch`` ends that call with `CancellationError` and cancels its MapKit search, the same as when a newer call supersedes it.

@@ -19,4 +19,4 @@ Two alternatives were rejected:
 
 - Every caller gets the same debounce and supersession without writing its own, and keeps its completions in one place, its own model.
 - Removing `.debounce`, `.duplicateSearchCriteria`, and `.invalidSearchCriteria` changes the public API, so it needs a minor release before 1.0. Klimate adopts it separately.
-- ADR 0001's rules 1 and 2, and its advice to treat `.debounce` and `.duplicateSearchCriteria` as "keep the current results", describe the code until KLI-252 changes it.
+- KLI-252 replaced ADR 0001's rules; ADR 0006 records the mechanism that implements this decision.

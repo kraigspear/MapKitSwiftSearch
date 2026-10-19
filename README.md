@@ -60,9 +60,10 @@ if let first = completions.first,
 
 ### Search as the user types
 
-Call `search(queryFragment:)` on every change to the text. Each call waits out the debounce delay, and a newer call with a different query supersedes an older one. The superseded call throws `LocationSearchError.debounce`, or `CancellationError` if its MapKit search had already started. Treat both as "keep the current results," not as failures.
+Call `search(queryFragment:)` on every change to the text. MapKit is asked only after the debounce delay, and only the latest call returns completions: a newer call supersedes an older one at once, and the older one throws `CancellationError`. Ignore it and keep the current results. Any other error is a MapKit failure, `LocationSearchError.mapKitError(_:)` for an `MKError`. MapKit throttles bursts of searches with `.loadingThrottled`, which clears by itself, so keep the current results for that too.
 
 ```swift
+import MapKit
 import MapKitSwiftSearch
 import Observation
 
@@ -71,16 +72,18 @@ import Observation
 final class SearchModel {
     private let locationSearch = LocationSearch()
     private(set) var completions: [LocalSearchCompletion] = []
+    private(set) var searchError: (any Error)?
 
     func queryChanged(to query: String) async {
         do {
             completions = try await locationSearch.search(queryFragment: query)
-        } catch LocationSearchError.debounce, LocationSearchError.duplicateSearchCriteria {
-            // Superseded by newer input, or the text didn't change
+            searchError = nil
         } catch is CancellationError {
-            // Superseded after the MapKit search started
+            // A newer query superseded this one: keep the current completions
+        } catch let LocationSearchError.mapKitError(error) where error.code == .loadingThrottled {
+            // MapKit throttles bursts of searches and recovers by itself: keep the current completions
         } catch {
-            completions = []
+            searchError = error
         }
     }
 }
@@ -95,7 +98,7 @@ let locationSearch = LocationSearch(
 )
 ```
 
-A query shorter than the minimum throws `LocationSearchError.invalidSearchCriteria`. An empty query returns no completions. Repeating the previous query throws `LocationSearchError.duplicateSearchCriteria`, even when the query is empty.
+An empty query, or one shorter than the minimum, returns no completions straight away, without the debounce.
 
 ### Resolve a placemark
 
