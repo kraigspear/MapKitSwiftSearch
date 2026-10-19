@@ -195,7 +195,7 @@ public final class LocationSearch {
 
     // MARK: - Public Search Methods
 
-    /// Returns MapKit's completions for the query fragment, after a debounce delay.
+    /// Returns MapKit's completions for the query fragment, asking MapKit only after a debounce delay.
     ///
     /// Call it on every change to the search text. Only the latest call returns completions:
     ///
@@ -233,6 +233,8 @@ public final class LocationSearch {
         }
 
         guard !queryFragment.isEmpty, queryFragment.count >= numberOfCharactersBeforeSearching else {
+            // Checked after superseding, so a cancelled caller still ends the older search
+            try Task.checkCancellation()
             let minimumCharacters = numberOfCharactersBeforeSearching
             logger.debug("Query shorter than \(minimumCharacters) characters, returning no completions")
             return []
@@ -242,6 +244,11 @@ public final class LocationSearch {
             if !takesOverInFlightSearch {
                 try await debounceSleep(debounceSearchDelay)
                 try Task.checkCancellation()
+            }
+            // A takeover superseded before this task ran must not restart the search the newer call gave up.
+            // A takeover whose own caller was cancelled goes on, so it can cancel the search nobody wants.
+            guard generation == callGeneration else {
+                throw CancellationError()
             }
             return try await completions(for: queryFragment, generation: callGeneration)
         }

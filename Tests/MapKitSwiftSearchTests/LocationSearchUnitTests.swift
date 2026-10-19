@@ -1,5 +1,6 @@
 import Foundation
 import MapKit
+import Synchronization
 import Testing
 @testable import MapKitSwiftSearch
 
@@ -309,6 +310,24 @@ struct LocationSearchUnitTests {
         #expect(fakeCompleter.cancellationCount == 1)
     }
 
+    @Test(arguments: ["", "Co"])
+    func `An empty or short query from a cancelled caller ends with CancellationError`(
+        queryFragment: String,
+    ) async throws {
+        // Given: A search for "Coffee shop" waiting on MapKit
+        let locationSearch = makeLocationSearch()
+        let firstSearch = await startInFlightSearch(on: locationSearch)
+
+        // When: An empty or short query arrives from a task cancelled before it runs
+        let cancelledSearch = Task { try await locationSearch.search(queryFragment: queryFragment) }
+        cancelledSearch.cancel()
+
+        // Then: The cancelled call throws rather than returning no completions, and still ends the older search
+        await #expect(throws: CancellationError.self) { try await cancelledSearch.valueWithinTimeLimit }
+        await #expect(throws: CancellationError.self) { try await firstSearch.valueWithinTimeLimit }
+        #expect(fakeCompleter.cancellationCount == 1)
+    }
+
     // MARK: - Repeated Query Fragments
 
     /// Verifies retyping the query already in flight still delivers its results.
@@ -332,6 +351,36 @@ struct LocationSearchUnitTests {
         #expect(fakeDebounce.sleepCount == 1)
         #expect(fakeCompleter.searchedFragments == ["Coffee shop"])
         #expect(fakeCompleter.cancellationCount == 0)
+    }
+
+    /// Verifies clearing the field just after retyping the in-flight query leaves no search running.
+    /// To replicate: type "Coffee shop" → add and delete a character → clear the field before suggestions appear
+    /// → no suggestions appear later.
+    /// From one turn, the takeover's call has run `search` but its task hasn't started yet
+    @Test(arguments: 1 ..< 4)
+    func `A takeover superseded before it runs never restarts the search it gave up`(
+        turnsBeforeNewerCall: Int,
+    ) async throws {
+        // Given: A search for "Coffee shop" waiting on MapKit, and a call for the same fragment taking it over
+        let locationSearch = makeLocationSearch()
+        let firstSearch = await startInFlightSearch(on: locationSearch)
+        let takeover = Task { try await locationSearch.search(queryFragment: "Coffee shop") }
+        for _ in 0 ..< turnsBeforeNewerCall {
+            await Task.yield()
+        }
+
+        // When: The field is cleared
+        let completions = try await locationSearch.search(queryFragment: "")
+
+        // Then: Both older calls end with CancellationError, and no search for the cleared text is left running
+        #expect(completions.isEmpty)
+        await #expect(throws: CancellationError.self) { try await takeover.valueWithinTimeLimit }
+        await #expect(throws: CancellationError.self) { try await firstSearch.valueWithinTimeLimit }
+        for _ in 0 ..< 10 {
+            await Task.yield()
+        }
+        #expect(fakeCompleter.searchedFragments == ["Coffee shop"])
+        #expect(fakeCompleter.cancellationCount == 1)
     }
 
     @Test
@@ -495,28 +544,53 @@ struct LocationSearchUnitTests {
     }
 }
 
+/// Thrown by a wait that the suite's time limit ended before its task finished.
+struct TimeLimitExceeded: Error {}
+
 private extension Task {
-    /// The task's result, cancelling the task if the waiting test is cancelled first.
+    /// The task's result, or `TimeLimitExceeded` once the waiting test is cancelled.
     ///
     /// The suite's time limit cancels only the test's own task, not the unstructured tasks it
-    /// starts, so awaiting `result` on a search that never ends would hang the run instead of
-    /// failing it.
-    var resultWithinTimeLimit: Result<Success, Failure> {
+    /// starts. A broken cancellation path may never end those tasks, so the wait ends on the
+    /// test's cancellation alone rather than on the task finishing.
+    var resultWithinTimeLimit: Result<Success, any Error> {
         get async {
-            await withTaskCancellationHandler {
-                await result
+            let outcome = Outcome<Success>()
+            return await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    outcome.store(continuation)
+                    // A cancellation that came before the continuation was stored found nothing to resume
+                    if Task<Never, Never>.isCancelled {
+                        outcome.resume(with: .failure(TimeLimitExceeded()))
+                    }
+                    Task<Void, Never> {
+                        await outcome.resume(with: self.result.mapError { $0 })
+                    }
+                }
             } onCancel: {
                 cancel()
+                outcome.resume(with: .failure(TimeLimitExceeded()))
             }
         }
     }
-}
 
-private extension Task where Failure == any Error {
-    /// The task's value, cancelling the task if the waiting test is cancelled first.
+    /// The task's value, or `TimeLimitExceeded` once the waiting test is cancelled.
     var valueWithinTimeLimit: Success {
         get async throws {
             try await resultWithinTimeLimit.get()
         }
+    }
+}
+
+/// Resumes a wait exactly once, with whichever comes first: the task's result or the time limit.
+private final class Outcome<Value: Sendable>: Sendable {
+    private let continuation = Mutex<CheckedContinuation<Result<Value, any Error>, Never>?>(nil)
+
+    func store(_ continuation: CheckedContinuation<Result<Value, any Error>, Never>) {
+        self.continuation.withLock { $0 = continuation }
+    }
+
+    func resume(with result: Result<Value, any Error>) {
+        continuation.withLock { $0.take() }?.resume(returning: result)
     }
 }

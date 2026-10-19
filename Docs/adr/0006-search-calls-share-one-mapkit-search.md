@@ -6,7 +6,7 @@ Supersedes ADR 0001.
 
 ADR 0004 says a superseded search ends only with `CancellationError`, and KLI-252 adds three more rules. A newer call ends an older one at once, even during its debounce. Cancelling the caller's task cancels its MapKit search. A newer call with the same query fragment as a MapKit search still running takes that search over instead of starting another.
 
-ADR 0001's two stored handles can't satisfy all three. Its debounce task was shared by every call, so a superseded call learned it was superseded only when its debounce ended. Its MapKit search task belonged to the call that started it, so ending that call either cancelled the search or left it running with nobody waiting.
+ADR 0001's two stored handles can't satisfy all three. A newer call cancelled the MapKit search only after its own debounce, so a call already waiting on MapKit learned it was superseded only when the newer call's debounce ended. Awaiting the search task's value didn't forward the caller's cancellation. And the search task belonged to the call that started it, so ending that call either cancelled the search or left it running with nobody waiting.
 
 ## Decision
 
