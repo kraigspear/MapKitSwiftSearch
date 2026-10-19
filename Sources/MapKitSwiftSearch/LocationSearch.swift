@@ -137,19 +137,8 @@ public final class LocationSearch {
 
     private typealias SearchTask = Task<[LocalSearchCompletion], Error>
 
-    /// The MapKit search a call is waiting on, kept apart from the call so a newer call
-    /// with the same query fragment can take it over (Docs/adr/0006).
-    private struct InFlightSearch {
-        let queryFragment: String
-        let task: SearchTask
-    }
-
-    /// Bumped by every call, so a call can tell whether a newer one has superseded it.
-    private var generation = 0
-
-    /// The latest call's debounce and wait, held so a newer call can cancel it.
-    private var currentCall: SearchTask?
-    private var inFlightSearch: InFlightSearch?
+    /// The latest call's debounce and MapKit search, held so a newer call can cancel it.
+    private var currentSearch: SearchTask?
 
     private let completerFactory: () -> any LocalSearchCompleterProtocol
     private let localSearchFactory: (LocalSearchCompletion) -> LocalSearchProtocol
@@ -205,9 +194,8 @@ public final class LocationSearch {
     /// - Cancelling the calling task also throws `CancellationError` and cancels the MapKit search.
     /// - An empty query, or one shorter than `numberOfCharactersBeforeSearching`, returns an
     ///   empty array without waiting for the debounce.
-    /// - A newer call with the same query fragment as a MapKit search still running takes
-    ///   that search over instead of starting another. Once a search has finished, the same
-    ///   query fragment searches again; nothing is cached.
+    /// - A newer call with the same query fragment supersedes this one like any other and
+    ///   starts its own MapKit search after its debounce; nothing is cached.
     ///
     /// MapKit throttles the search completer after about 100 requests in roughly 100 seconds,
     /// failing with `MKError.loadingThrottled` until the window passes. Treat that failure as
@@ -221,16 +209,8 @@ public final class LocationSearch {
     ///     including `.loadingThrottled`.
     ///   - Any other error MapKit reports, unchanged.
     public func search(queryFragment: String) async throws -> [LocalSearchCompletion] {
-        generation += 1
-        let callGeneration = generation
-        currentCall?.cancel()
-        currentCall = nil
-
-        let takesOverInFlightSearch = inFlightSearch?.queryFragment == queryFragment
-        if !takesOverInFlightSearch {
-            inFlightSearch?.task.cancel()
-            inFlightSearch = nil
-        }
+        currentSearch?.cancel()
+        currentSearch = nil
 
         guard !queryFragment.isEmpty, queryFragment.count >= numberOfCharactersBeforeSearching else {
             // Checked after superseding, so a cancelled caller still ends the older search
@@ -240,29 +220,22 @@ public final class LocationSearch {
             return []
         }
 
-        let call = SearchTask {
-            if !takesOverInFlightSearch {
-                try await debounceSleep(debounceSearchDelay)
-                try Task.checkCancellation()
-            }
-            // A takeover superseded before this task ran must not restart the search the newer call gave up.
-            // A takeover whose own caller was cancelled goes on, so it can cancel the search nobody wants.
-            guard generation == callGeneration else {
-                throw CancellationError()
-            }
-            return try await completions(for: queryFragment, generation: callGeneration)
+        let search = SearchTask {
+            try await debounceSleep(debounceSearchDelay)
+            try Task.checkCancellation()
+            return try await performSearch(queryFragment: queryFragment)
         }
-        currentCall = call
+        currentSearch = search
 
         let result = await withTaskCancellationHandler {
-            await call.result
+            await search.result
         } onCancel: {
-            call.cancel()
+            search.cancel()
         }
 
-        // MapKit can answer in the same turn a newer call arrives, so the call's task can
-        // finish with completions or a failure after it was superseded
-        guard generation == callGeneration, !Task.isCancelled else {
+        // MapKit can answer in the same turn a newer call arrives, so the search can finish
+        // with completions or a failure after it was superseded
+        guard currentSearch == search, !Task.isCancelled else {
             throw CancellationError()
         }
         return try result.get()
@@ -315,47 +288,6 @@ public final class LocationSearch {
 
     // MARK: - Private Search Implementation
 
-    /// Waits for the in-flight MapKit search for the query fragment, starting one if none is running.
-    ///
-    /// The wait ends as soon as this call is cancelled, but only a call that is still the
-    /// latest cancels the MapKit search: a superseding call with the same query fragment
-    /// is waiting on it too.
-    private func completions(
-        for queryFragment: String,
-        generation callGeneration: Int,
-    ) async throws -> [LocalSearchCompletion] {
-        let search: SearchTask
-        if let inFlightSearch, inFlightSearch.queryFragment == queryFragment {
-            search = inFlightSearch.task
-        } else {
-            search = SearchTask { try await performSearch(queryFragment: queryFragment) }
-            inFlightSearch = InFlightSearch(queryFragment: queryFragment, task: search)
-        }
-
-        do {
-            let completions = try await search.valueUntilCancelled()
-            finishInFlightSearch(search)
-            return completions
-        } catch is CancellationError where generation == callGeneration {
-            // The caller's task was cancelled, not superseded, so nobody else wants the search
-            search.cancel()
-            finishInFlightSearch(search)
-            throw CancellationError()
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            finishInFlightSearch(search)
-            throw error
-        }
-    }
-
-    /// Forgets a finished search, so the next call with its query fragment searches again.
-    private func finishInFlightSearch(_ search: SearchTask) {
-        if inFlightSearch?.task == search {
-            inFlightSearch = nil
-        }
-    }
-
     /// Runs one MapKit completer search for the query fragment.
     ///
     /// Each search gets a fresh completer, so a late answer for an older query can't reach it.
@@ -378,46 +310,6 @@ public final class LocationSearch {
             logger.error("MapKit search completer failed for \(queryFragment): \(error)")
             throw error
         }
-    }
-}
-
-// MARK: - Waiting Without Cancelling
-
-private extension Task where Success: Sendable, Failure == any Error {
-    /// The task's value, or `CancellationError` as soon as the waiting task is cancelled.
-    ///
-    /// Unlike `value`, the wait answers the waiter's cancellation without cancelling this task,
-    /// which another waiter may still need.
-    func valueUntilCancelled() async throws -> Success {
-        let waiter = Waiter<Success>()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                waiter.store(continuation)
-                // A cancellation that came before the continuation was stored found nothing to resume
-                guard !Task<Never, Never>.isCancelled else {
-                    waiter.resume(with: .failure(Swift.CancellationError()))
-                    return
-                }
-                Task<Void, Never> {
-                    await waiter.resume(with: self.result)
-                }
-            }
-        } onCancel: {
-            waiter.resume(with: .failure(Swift.CancellationError()))
-        }
-    }
-}
-
-/// Resumes a continuation exactly once, from whichever comes first.
-private final class Waiter<Value: Sendable>: Sendable {
-    private let continuation = Mutex<CheckedContinuation<Value, any Error>?>(nil)
-
-    func store(_ continuation: CheckedContinuation<Value, any Error>) {
-        self.continuation.withLock { $0 = continuation }
-    }
-
-    func resume(with result: Result<Value, any Error>) {
-        continuation.withLock { $0.take() }?.resume(with: result)
     }
 }
 

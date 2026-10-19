@@ -261,23 +261,6 @@ struct LocationSearchUnitTests {
         #expect(fakeCompleter.searchedFragments.isEmpty)
     }
 
-    @Test
-    func `A call cancelled before it starts ends with CancellationError when taking over a search`() async {
-        // Given: A search for "Coffee shop" waiting on MapKit
-        let locationSearch = makeLocationSearch()
-        let firstSearch = await startInFlightSearch(on: locationSearch)
-
-        // When: A call for the same query fragment is cancelled before it runs
-        let secondSearch = Task { try await locationSearch.search(queryFragment: "Coffee shop") }
-        secondSearch.cancel()
-
-        // Then: Both calls end with CancellationError, and the search nobody waits on is cancelled
-        await #expect(throws: CancellationError.self) { try await secondSearch.valueWithinTimeLimit }
-        await #expect(throws: CancellationError.self) { try await firstSearch.valueWithinTimeLimit }
-        await waitUntil { fakeCompleter.cancellationCount == 1 }
-        #expect(fakeCompleter.searchedFragments == ["Coffee shop"])
-    }
-
     // MARK: - Empty and Short Queries
 
     @Test(arguments: ["", "Co"])
@@ -330,10 +313,10 @@ struct LocationSearchUnitTests {
 
     // MARK: - Repeated Query Fragments
 
-    /// Verifies retyping the query already in flight still delivers its results.
-    /// To replicate: type "Coffee shop" → add and delete a character before suggestions appear → suggestions appear.
+    /// Verifies searching the same text twice in a row still delivers results.
+    /// To replicate: type "Coffee shop" → search the same text again before suggestions appear → suggestions appear.
     @Test
-    func `The same query fragment as the in-flight search takes that search over`() async throws {
+    func `The same query fragment as the in-flight search cancels it and starts a new search`() async throws {
         // Given: A search for "Coffee shop" waiting on MapKit
         let locationSearch = makeLocationSearch(heldDebounce: true)
         let firstSearch = Task { try await locationSearch.search(queryFragment: "Coffee shop") }
@@ -341,46 +324,19 @@ struct LocationSearchUnitTests {
         fakeDebounce.release()
         await waitUntil { fakeCompleter.searchedFragments.count == 1 }
 
-        // When: The same query fragment arrives again, then MapKit answers
+        // When: The same query fragment arrives again
         let secondSearch = Task { try await locationSearch.search(queryFragment: "Coffee shop") }
+
+        // Then: The first call ends with CancellationError and its MapKit search is cancelled
         await #expect(throws: CancellationError.self) { try await firstSearch.valueWithinTimeLimit }
+        await waitUntil { fakeCompleter.cancellationCount == 1 }
+
+        // And: The newer call debounces, searches MapKit again, and returns its completions
+        await waitUntil { fakeDebounce.sleepCount == 2 }
+        fakeDebounce.release()
+        await waitUntil { fakeCompleter.searchedFragments == ["Coffee shop", "Coffee shop"] }
         fakeCompleter.sendResults([Self.coffeeShopCompletion])
-
-        // Then: The newer call returns the original search's completions, without a debounce or a second search
         #expect(try await secondSearch.valueWithinTimeLimit == [Self.coffeeShopCompletion])
-        #expect(fakeDebounce.sleepCount == 1)
-        #expect(fakeCompleter.searchedFragments == ["Coffee shop"])
-        #expect(fakeCompleter.cancellationCount == 0)
-    }
-
-    /// Verifies clearing the field just after retyping the in-flight query leaves no search running.
-    /// To replicate: type "Coffee shop" → add and delete a character → clear the field before suggestions appear
-    /// → no suggestions appear later.
-    /// From one turn, the takeover's call has run `search` but its task hasn't started yet
-    @Test(arguments: 1 ..< 4)
-    func `A takeover superseded before it runs never restarts the search it gave up`(
-        turnsBeforeNewerCall: Int,
-    ) async throws {
-        // Given: A search for "Coffee shop" waiting on MapKit, and a call for the same fragment taking it over
-        let locationSearch = makeLocationSearch()
-        let firstSearch = await startInFlightSearch(on: locationSearch)
-        let takeover = Task { try await locationSearch.search(queryFragment: "Coffee shop") }
-        for _ in 0 ..< turnsBeforeNewerCall {
-            await Task.yield()
-        }
-
-        // When: The field is cleared
-        let completions = try await locationSearch.search(queryFragment: "")
-
-        // Then: Both older calls end with CancellationError, and no search for the cleared text is left running
-        #expect(completions.isEmpty)
-        await #expect(throws: CancellationError.self) { try await takeover.valueWithinTimeLimit }
-        await #expect(throws: CancellationError.self) { try await firstSearch.valueWithinTimeLimit }
-        for _ in 0 ..< 10 {
-            await Task.yield()
-        }
-        #expect(fakeCompleter.searchedFragments == ["Coffee shop"])
-        #expect(fakeCompleter.cancellationCount == 1)
     }
 
     @Test
