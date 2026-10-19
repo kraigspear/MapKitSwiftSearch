@@ -150,8 +150,8 @@ struct LocationSearchUnitTests {
         fakeCompleter.sendResults([Self.coffeeShopCompletion])
 
         // Then: Only the newer call returns completions, and the older search was cancelled
-        #expect(try await secondSearch.value == [Self.coffeeShopCompletion])
-        await #expect(throws: CancellationError.self) { try await firstSearch.value }
+        #expect(try await secondSearch.valueWithinTimeLimit == [Self.coffeeShopCompletion])
+        await #expect(throws: CancellationError.self) { try await firstSearch.valueWithinTimeLimit }
         #expect(fakeCompleter.cancellationCount == 1)
     }
 
@@ -166,12 +166,12 @@ struct LocationSearchUnitTests {
         let secondSearch = Task { try await locationSearch.search(queryFragment: "Coffee shops") }
 
         // Then: The first call ends before any debounce is released, and never reaches MapKit
-        await #expect(throws: CancellationError.self) { try await firstSearch.value }
+        await #expect(throws: CancellationError.self) { try await firstSearch.valueWithinTimeLimit }
         await waitUntil { fakeDebounce.sleepCount == 2 }
         fakeDebounce.release()
         await waitUntil { fakeCompleter.searchedFragments == ["Coffee shops"] }
         fakeCompleter.sendResults([Self.coffeeShopCompletion])
-        #expect(try await secondSearch.value == [Self.coffeeShopCompletion])
+        #expect(try await secondSearch.valueWithinTimeLimit == [Self.coffeeShopCompletion])
     }
 
     @Test
@@ -188,10 +188,10 @@ struct LocationSearchUnitTests {
         fakeDebounce.release()
 
         // Then: The superseded call ends with CancellationError and only the newer query reaches MapKit
-        await #expect(throws: CancellationError.self) { try await firstSearch.value }
+        await #expect(throws: CancellationError.self) { try await firstSearch.valueWithinTimeLimit }
         await waitUntil { fakeCompleter.searchedFragments == ["Coffee shops"] }
         fakeCompleter.sendResults([Self.coffeeShopCompletion])
-        #expect(try await secondSearch.value == [Self.coffeeShopCompletion])
+        #expect(try await secondSearch.valueWithinTimeLimit == [Self.coffeeShopCompletion])
     }
 
     /// Verifies a superseded search never shows results or an error, however close MapKit's answer
@@ -223,7 +223,7 @@ struct LocationSearchUnitTests {
         let emptySearch = Task {
             displayedSearch = try await .completions(locationSearch.search(queryFragment: ""))
         }
-        _ = await (firstSearch.result, emptySearch.result)
+        _ = await (firstSearch.resultWithinTimeLimit, emptySearch.resultWithinTimeLimit)
 
         // Then: The last outcome shown is the newer call's
         #expect(displayedSearch == .completions([]))
@@ -241,7 +241,7 @@ struct LocationSearchUnitTests {
         search.cancel()
 
         // Then: The call ends with CancellationError and MapKit's search is cancelled
-        await #expect(throws: CancellationError.self) { try await search.value }
+        await #expect(throws: CancellationError.self) { try await search.valueWithinTimeLimit }
         await waitUntil { fakeCompleter.cancellationCount == 1 }
     }
 
@@ -256,7 +256,7 @@ struct LocationSearchUnitTests {
         search.cancel()
 
         // Then: The call ends with CancellationError before MapKit is asked
-        await #expect(throws: CancellationError.self) { try await search.value }
+        await #expect(throws: CancellationError.self) { try await search.valueWithinTimeLimit }
         #expect(fakeCompleter.searchedFragments.isEmpty)
     }
 
@@ -271,8 +271,8 @@ struct LocationSearchUnitTests {
         secondSearch.cancel()
 
         // Then: Both calls end with CancellationError, and the search nobody waits on is cancelled
-        await #expect(throws: CancellationError.self) { try await secondSearch.value }
-        await #expect(throws: CancellationError.self) { try await firstSearch.value }
+        await #expect(throws: CancellationError.self) { try await secondSearch.valueWithinTimeLimit }
+        await #expect(throws: CancellationError.self) { try await firstSearch.valueWithinTimeLimit }
         await waitUntil { fakeCompleter.cancellationCount == 1 }
         #expect(fakeCompleter.searchedFragments == ["Coffee shop"])
     }
@@ -305,7 +305,7 @@ struct LocationSearchUnitTests {
 
         // Then: The newer call returns nothing and the original search is cancelled
         #expect(completions.isEmpty)
-        await #expect(throws: CancellationError.self) { try await firstSearch.value }
+        await #expect(throws: CancellationError.self) { try await firstSearch.valueWithinTimeLimit }
         #expect(fakeCompleter.cancellationCount == 1)
     }
 
@@ -324,11 +324,11 @@ struct LocationSearchUnitTests {
 
         // When: The same query fragment arrives again, then MapKit answers
         let secondSearch = Task { try await locationSearch.search(queryFragment: "Coffee shop") }
-        await #expect(throws: CancellationError.self) { try await firstSearch.value }
+        await #expect(throws: CancellationError.self) { try await firstSearch.valueWithinTimeLimit }
         fakeCompleter.sendResults([Self.coffeeShopCompletion])
 
         // Then: The newer call returns the original search's completions, without a debounce or a second search
-        #expect(try await secondSearch.value == [Self.coffeeShopCompletion])
+        #expect(try await secondSearch.valueWithinTimeLimit == [Self.coffeeShopCompletion])
         #expect(fakeDebounce.sleepCount == 1)
         #expect(fakeCompleter.searchedFragments == ["Coffee shop"])
         #expect(fakeCompleter.cancellationCount == 0)
@@ -340,14 +340,14 @@ struct LocationSearchUnitTests {
         let locationSearch = makeLocationSearch()
         let firstSearch = await startInFlightSearch(on: locationSearch)
         fakeCompleter.sendResults([Self.coffeeShopCompletion])
-        _ = try await firstSearch.value
+        _ = try await firstSearch.valueWithinTimeLimit
 
         // When: The same query fragment arrives again
         let secondSearch = await startInFlightSearch(on: locationSearch)
         fakeCompleter.sendResults([])
 
         // Then: MapKit searched again and the newer answer is returned
-        #expect(try await secondSearch.value == [])
+        #expect(try await secondSearch.valueWithinTimeLimit == [])
         #expect(fakeCompleter.searchedFragments == ["Coffee shop", "Coffee shop"])
     }
 
@@ -361,7 +361,7 @@ struct LocationSearchUnitTests {
         fakeCompleter.sendError(MKError(.loadingThrottled))
 
         await #expect(throws: LocationSearchError.mapKitError(MKError(.loadingThrottled))) {
-            try await search.value
+            try await search.valueWithinTimeLimit
         }
     }
 
@@ -373,7 +373,7 @@ struct LocationSearchUnitTests {
 
         fakeCompleter.sendError(CompleterFailure())
 
-        await #expect(throws: CompleterFailure()) { try await search.value }
+        await #expect(throws: CompleterFailure()) { try await search.valueWithinTimeLimit }
     }
 
     /// Verifies a failed search can be retried with the same text.
@@ -384,14 +384,14 @@ struct LocationSearchUnitTests {
         let locationSearch = makeLocationSearch()
         let failedSearch = await startInFlightSearch(on: locationSearch)
         fakeCompleter.sendError(MKError(.serverFailure))
-        _ = await failedSearch.result
+        _ = await failedSearch.resultWithinTimeLimit
 
         // When: The same query fragment is searched again
         let retry = await startInFlightSearch(on: locationSearch)
         fakeCompleter.sendResults([Self.coffeeShopCompletion])
 
         // Then: MapKit searched again and the retry returns its completions
-        #expect(try await retry.value == [Self.coffeeShopCompletion])
+        #expect(try await retry.valueWithinTimeLimit == [Self.coffeeShopCompletion])
         #expect(fakeCompleter.searchedFragments == ["Coffee shop", "Coffee shop"])
     }
 
@@ -491,6 +491,32 @@ struct LocationSearchUnitTests {
                 #expect(Bool(false), "Expected searchCompletionFailed")
                 return
             }
+        }
+    }
+}
+
+private extension Task {
+    /// The task's result, cancelling the task if the waiting test is cancelled first.
+    ///
+    /// The suite's time limit cancels only the test's own task, not the unstructured tasks it
+    /// starts, so awaiting `result` on a search that never ends would hang the run instead of
+    /// failing it.
+    var resultWithinTimeLimit: Result<Success, Failure> {
+        get async {
+            await withTaskCancellationHandler {
+                await result
+            } onCancel: {
+                cancel()
+            }
+        }
+    }
+}
+
+private extension Task where Failure == any Error {
+    /// The task's value, cancelling the task if the waiting test is cancelled first.
+    var valueWithinTimeLimit: Success {
+        get async throws {
+            try await resultWithinTimeLimit.get()
         }
     }
 }
