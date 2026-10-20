@@ -7,12 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A9867B832D2549FA00963FD7 /* formatcode.sh in Resources */ = {isa = PBXBuildFile; fileRef = A9867B822D2549FA00963FD7 /* formatcode.sh */; };
 		A9A6B7A92D229A7D0021D8A0 /* MapKitSwiftSearch in Frameworks */ = {isa = PBXBuildFile; productRef = A9A6B7A82D229A7D0021D8A0 /* MapKitSwiftSearch */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A9867B822D2549FA00963FD7 /* formatcode.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = formatcode.sh; sourceTree = "<group>"; };
 		A9A6B7952D229A500021D8A0 /* TestApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TestApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -39,7 +37,6 @@
 		A9A6B78C2D229A500021D8A0 = {
 			isa = PBXGroup;
 			children = (
-				A9867B822D2549FA00963FD7 /* formatcode.sh */,
 				A9A6B7972D229A500021D8A0 /* TestApp */,
 				A9A6B7962D229A500021D8A0 /* Products */,
 			);
@@ -104,7 +101,7 @@
 			mainGroup = A9A6B78C2D229A500021D8A0;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				A9A6B7A72D229A7D0021D8A0 /* XCLocalSwiftPackageReference "../../MapKitSwiftSearch" */,
+				A9A6B7A72D229A7D0021D8A0 /* XCLocalSwiftPackageReference ".." */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A9A6B7962D229A500021D8A0 /* Products */;
@@ -121,7 +118,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A9867B832D2549FA00963FD7 /* formatcode.sh in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -356,9 +352,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		A9A6B7A72D229A7D0021D8A0 /* XCLocalSwiftPackageReference "../../MapKitSwiftSearch" */ = {
+		A9A6B7A72D229A7D0021D8A0 /* XCLocalSwiftPackageReference ".." */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../MapKitSwiftSearch;
+			relativePath = ..;
 		};
 /* End XCLocalSwiftPackageReference section */
 
