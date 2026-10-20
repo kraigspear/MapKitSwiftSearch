@@ -15,7 +15,7 @@ The interface around that one range was shallow as well. `HighlightRange` only f
 - The snapshot converts all of MapKit's ranges once, to `[Range<String.Index>]` against a native UTF-8 copy of the text, so highlights built from a Swift string compare and hash the same. A range that doesn't fit the text is dropped, never a crash.
 - Ranges are colored in any order and may overlap; overlapping ranges color their union.
 - `==` and `hash(into:)` cover the title, the subtitle, and the highlights. `id` stays the title and subtitle.
-- `HighlightRange`, `titleHighlightRange`, `subtitleHighlightRange`, and the `PlatformSpecific/` files are removed. The highlights stay internal; the internal memberwise initializer takes them as `titleHighlights:` and `subtitleHighlights:`.
+- `HighlightRange`, `titleHighlightRange`, `subtitleHighlightRange`, and the `PlatformSpecific/` files are removed. The highlight properties stay internal; the memberwise initializer, public since KLI-257, takes them as `titleHighlights:` and `subtitleHighlights:`.
 
 ## Alternatives considered
 
