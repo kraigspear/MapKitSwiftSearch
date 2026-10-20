@@ -26,7 +26,6 @@ The articles follow `main`. From 0.3.0, ``LocationSearch/placemark(for:)`` retur
 ### Results
 
 - ``LocalSearchCompletion``
-- ``HighlightRange``
 - ``Placemark``
 
 ### Errors

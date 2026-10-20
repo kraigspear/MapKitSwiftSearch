@@ -121,8 +121,6 @@ struct LocationSearchUnitTests {
     static let coffeeShopCompletion = LocalSearchCompletion(
         title: "Coffee shop",
         subTitle: "Grand Rapids, MI",
-        titleHighlightRange: nil,
-        subtitleHighlightRange: nil,
     )
 
     static let pizzaCompletion = LocalSearchCompletion(

@@ -6,7 +6,7 @@ MapKit's `MKLocalSearchCompletion` and `MKMapItem` are `NSObject` subclasses wit
 
 ## Decision
 
-Public results are value types that copy what callers need out of MapKit at the boundary and declare `Sendable` explicitly. `LocalSearchCompletion.init(_:)` copies the title, the subtitle, and one highlight range per field (ADR 0003). `Placemark.init(mapItem:)` copies the coordinate, name, full and short address, and time zone. `Placemark.init(mapItem:)` is the only public API that touches a MapKit object.
+Public results are value types that copy what callers need out of MapKit at the boundary and declare `Sendable` explicitly. `LocalSearchCompletion.init(_:)` copies the title, the subtitle, and every highlight (ADR 0008). `Placemark.init(mapItem:)` copies the coordinate, name, full and short address, and time zone. `Placemark.init(mapItem:)` is the only public API that touches a MapKit object.
 
 Returning MapKit objects was rejected. So was wrapping them as `@unchecked Sendable` in the public interface, which would promise a thread safety MapKit doesn't document. ADR 0007 keeps one privately, opened only on the main actor.
 
