@@ -17,7 +17,7 @@ ADR 0002's snapshot dropped the `MKLocalSearchCompletion` MapKit returned, so `p
 - The box is `@unchecked Sendable`. Sharing it is safe because MapKit never mutates a completion after delivering it, and the package reads it only on the main actor, through `LocationSearch`.
 - The box stays out of `==`, `hash(into:)`, and `id`: two snapshots with the same fields are the same completion to a caller.
 - The public interface still holds no MapKit type, as ADR 0002 decided. Only the internal accessor opens the box.
-- A completion with no MapKit completion behind it, which only the internal memberwise initializer builds, throws `LocationSearchError.mapKitError` with `.placemarkNotFound`.
+- A completion with no MapKit completion behind it, which only the memberwise initializer builds (public since KLI-257, for previews and test doubles), throws `LocationSearchError.mapKitError` with `.placemarkNotFound`.
 - Cancelling the caller's task cancels the `MKLocalSearch`. Calls don't supersede each other; a caller that wants only the latest tap cancels the earlier call's task.
 
 ## Consequences

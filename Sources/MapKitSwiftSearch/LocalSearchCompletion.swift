@@ -46,10 +46,28 @@ public struct LocalSearchCompletion: Identifiable, Equatable, Sendable, Hashable
         )
     }
 
-    /// Creates a completion with no MapKit completion behind it, which can't be resolved.
+    /// Creates a completion from its fields, for previews and test doubles.
     ///
-    /// A highlight that doesn't fit its text is ignored when the text is colored.
-    init(
+    /// No MapKit completion stands behind it, so ``LocationSearch/placemark(for:)`` can't resolve it
+    /// and throws ``LocationSearchError/mapKitError(_:)`` with `.placemarkNotFound`.
+    ///
+    /// ```swift
+    /// let title = "Coffee Roasters"
+    /// let completion = LocalSearchCompletion(
+    ///     title: title,
+    ///     subTitle: "Grand Rapids, MI",
+    ///     titleHighlights: title.range(of: "Coffee").map { [$0] } ?? [],
+    /// )
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - title: The primary text, such as a place name.
+    ///   - subTitle: The secondary text, such as an address or region.
+    ///   - titleHighlights: The parts of `title` that match the query fragment. A range that doesn't
+    ///     fit `title` is left uncolored.
+    ///   - subtitleHighlights: The parts of `subTitle` that match the query fragment. A range that
+    ///     doesn't fit `subTitle` is left uncolored.
+    public init(
         title: String,
         subTitle: String,
         titleHighlights: [Range<String.Index>] = [],
