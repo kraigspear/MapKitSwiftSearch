@@ -12,6 +12,8 @@
 
 ## FU-3 (FOLLOW-UP): TestApp doesn't build outside a checkout named `MapKitSwiftSearch`
 
+- Status: resolved by KLI-263, which points the package reference at `..` and drops `formatcode.sh` from the project. A TestApp build in CI is still open.
+
 - Review target: branch `kraigspear/kli-256-placemarks-interface-states-only-what-can-happen` (KLI-256), base `2935662`. Pre-existing on `main`.
 - Evidence: `TestApp/TestApp.xcodeproj/project.pbxproj` references the package as `relativePath = ../../MapKitSwiftSearch`, so a git worktree in any other directory fails package resolution. The same project lists `formatcode.sh` in the TestApp target's Resources phase, but the file isn't in the repository, so `xcodebuild build -scheme TestApp` fails with "The file “formatcode.sh” couldn’t be opened".
 - Cost: TestApp can't be built from a clean clone, so a public API change can't show TestApp still compiles without hand-editing the project; KLI-256 verified it only from a scratch copy with an empty `formatcode.sh`.
