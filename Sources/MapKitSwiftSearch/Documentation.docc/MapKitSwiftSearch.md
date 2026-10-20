@@ -14,6 +14,8 @@ Requires iOS 26 or macOS 26, and Swift 6.4 (Xcode 27). Add the package with Swif
 
 The package is pre-1.0, so a minor release can change the public API. `.upToNextMinor` takes patch releases and waits for you to opt in to the next minor.
 
+The articles follow `main`. From 0.3.0, ``LocationSearch/placemark(for:)`` returns a ``Placemark``; in 0.2.x and earlier it returns `Placemark?`, so unwrap its result there.
+
 ## Topics
 
 ### Essentials

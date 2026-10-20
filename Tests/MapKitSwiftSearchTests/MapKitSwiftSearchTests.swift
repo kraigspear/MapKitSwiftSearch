@@ -32,9 +32,8 @@ struct LocationSearchTest {
             )
 
             let placemark = try await locationSearch.placemark(for: foundLocation)
-            #expect(placemark != nil, "Expected selection")
 
-            #expect(placemark?.name == "Caledonia", "Expected selection title")
+            #expect(placemark.name == "Caledonia", "Expected selection title")
         }
 
         /// A "Search Nearby" completion is the case a text search for its title and subtitle got
@@ -61,7 +60,7 @@ struct LocationSearchTest {
             let suggestedSearch = MKLocalSearch(request: MKLocalSearch.Request(completion: mapKitCompletion))
             let suggested = try #require(try await suggestedSearch.start().mapItems.first)
 
-            let placemark = try #require(try await locationSearch.placemark(for: searchNearby))
+            let placemark = try await locationSearch.placemark(for: searchNearby)
 
             let distance = CLLocation(
                 latitude: placemark.coordinate.latitude,

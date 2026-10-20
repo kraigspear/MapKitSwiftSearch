@@ -436,7 +436,7 @@ struct LocationSearchUnitTests {
     func startInFlightPlacemark(
         for completion: LocalSearchCompletion = Self.pizzaCompletion,
         on locationSearch: LocationSearch,
-    ) async -> Task<Placemark?, Error> {
+    ) async -> Task<Placemark, Error> {
         let resolveCount = fakeLocalSearch.resolvedCompletions.count
         let placemark = Task { try await locationSearch.placemark(for: completion) }
         await waitUntil { fakeLocalSearch.resolvedCompletions.count > resolveCount }
@@ -469,7 +469,7 @@ struct LocationSearchUnitTests {
 
         fakeLocalSearch.sendMapItems([Self.pizzaPlaceMapItem(), Self.otherPizzaPlaceMapItem()])
 
-        let resolved = try #require(try await placemark.valueWithinTimeLimit)
+        let resolved = try await placemark.valueWithinTimeLimit
         #expect(resolved.name == "Supino Pizzeria")
         #expect(resolved.coordinate.latitude == 42.3363)
         #expect(resolved.coordinate.longitude == -83.0410)
@@ -512,13 +512,13 @@ struct LocationSearchUnitTests {
     }
 
     @Test
-    func `Placemark maps no map items to searchCompletionFailed`() async {
+    func `Placemark maps no map items to placemarkNotFound`() async {
         let locationSearch = makeLocationSearch()
         let placemark = await startInFlightPlacemark(on: locationSearch)
 
         fakeLocalSearch.sendMapItems([])
 
-        await #expect(throws: LocationSearchError.searchCompletionFailed) {
+        await #expect(throws: LocationSearchError.mapKitError(MKError(.placemarkNotFound))) {
             try await placemark.valueWithinTimeLimit
         }
     }
@@ -576,8 +576,8 @@ struct LocationSearchUnitTests {
         firstSearch.sendMapItems([Self.pizzaPlaceMapItem()])
 
         // Then: Each call returns its own answer and neither search was cancelled
-        #expect(try await first.valueWithinTimeLimit?.name == "Supino Pizzeria")
-        #expect(try await second.valueWithinTimeLimit?.name == "Buddy's Pizza")
+        #expect(try await first.valueWithinTimeLimit.name == "Supino Pizzeria")
+        #expect(try await second.valueWithinTimeLimit.name == "Buddy's Pizza")
         #expect(firstSearch.cancellationCount == 0)
         #expect(secondSearch.cancellationCount == 0)
     }

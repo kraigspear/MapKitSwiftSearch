@@ -35,7 +35,7 @@ final class SearchModel {
         }
     }
 
-    func placemark(for completion: LocalSearchCompletion) async throws -> Placemark? {
+    func placemark(for completion: LocalSearchCompletion) async throws -> Placemark {
         try await locationSearch.placemark(for: completion)
     }
 }
@@ -58,8 +58,11 @@ struct SearchView: View {
             List(model.completions) { completion in
                 Button {
                     Task {
-                        if let placemark = try? await model.placemark(for: completion) {
+                        do {
+                            let placemark = try await model.placemark(for: completion)
                             print(placemark.name ?? "", placemark.coordinate)
+                        } catch {
+                            print("Couldn't resolve \(completion.title): \(error)")
                         }
                     }
                 } label: {

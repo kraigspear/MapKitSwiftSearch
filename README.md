@@ -40,6 +40,8 @@ In Xcode, choose **File > Add Package Dependencies…** and enter the repository
 
 The package is pre-1.0, so a minor release can change the public API. `.upToNextMinor` takes patch releases and waits for you to opt in to the next minor.
 
+The examples below follow `main`. From 0.3.0, `placemark(for:)` returns a `Placemark`; in 0.2.x and earlier it returns `Placemark?`, so unwrap its result there.
+
 ## Quick Start
 
 `LocationSearch` is `@MainActor`; call it from the main actor.
@@ -50,8 +52,8 @@ import MapKitSwiftSearch
 let locationSearch = LocationSearch()
 
 let completions = try await locationSearch.search(queryFragment: "Apple Park")
-if let first = completions.first,
-   let placemark = try await locationSearch.placemark(for: first) {
+if let first = completions.first {
+    let placemark = try await locationSearch.placemark(for: first)
     print(placemark.name ?? "", placemark.coordinate)
 }
 ```
@@ -105,15 +107,14 @@ An empty query, or one shorter than the minimum, returns no completions straight
 `placemark(for:)` runs an `MKLocalSearch` for the completion and returns a `Placemark`:
 
 ```swift
-if let placemark = try await locationSearch.placemark(for: completion) {
-    print(placemark.coordinate)
-    print(placemark.name ?? "")
-    print(placemark.fullAddress ?? "")
-    print(placemark.shortAddress ?? "")
-}
+let placemark = try await locationSearch.placemark(for: completion)
+print(placemark.coordinate)
+print(placemark.name ?? "")
+print(placemark.fullAddress ?? "")
+print(placemark.shortAddress ?? "")
 ```
 
-A MapKit failure throws `LocationSearchError.mapKitError(_:)` with the underlying `MKError`.
+A MapKit failure throws `LocationSearchError.mapKitError(_:)` with the underlying `MKError`, which is `.placemarkNotFound` when MapKit finds no place. Cancelling the calling task throws `CancellationError`.
 
 ### Highlight matched text
 
