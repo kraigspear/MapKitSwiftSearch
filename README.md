@@ -118,7 +118,7 @@ A MapKit failure throws `LocationSearchError.mapKitError(_:)` with the underlyin
 
 ### Highlight matched text
 
-Each completion carries the first range MapKit matched in its title and in its subtitle. `highlightedTitle()` and `highlightedSubTitle()` return an `AttributedString` with the match drawn in a highlight color:
+Each completion carries every part of its title and subtitle that matches a word of the query fragment. `highlightedTitle()` and `highlightedSubTitle()` return an `AttributedString` with every match drawn in a highlight color:
 
 ```swift
 import MapKitSwiftSearch
@@ -137,7 +137,16 @@ struct CompletionRow: View {
 }
 ```
 
-The defaults, light gray with a white highlight, suit a dark background. Pass `foregroundColor:` and `highlightColor:` to change them; they take `UIColor` on iOS and `NSColor` on macOS.
+The defaults, `.secondary` with a `.primary` highlight, read in both light and dark appearance. Pass SwiftUI colors to change them, on iOS and macOS alike:
+
+```swift
+import MapKitSwiftSearch
+import SwiftUI
+
+func accentedTitle(of completion: LocalSearchCompletion) -> AttributedString {
+    completion.highlightedTitle(foreground: .secondary, highlight: .accentColor)
+}
+```
 
 ## Documentation
 

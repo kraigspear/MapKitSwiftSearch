@@ -9,9 +9,9 @@ Use the domain terms defined in [GLOSSARY.md](GLOSSARY.md) in new code, docs, AD
 MapKitSwiftSearch wraps MapKit's location search in async/await. It ships one library product, `MapKitSwiftSearch`, and Klimate uses it for its location search.
 
 - `LocationSearch` (`@MainActor`): `search(queryFragment:)` returns debounced completions from `MKLocalSearchCompleter`; `placemark(for:)` resolves one completion through `MKLocalSearch`.
-- `LocalSearchCompletion`: a `Sendable` snapshot of one completion, with its highlight ranges. Platform-specific highlighting lives in `Sources/MapKitSwiftSearch/PlatformSpecific/`.
+- `LocalSearchCompletion`: a `Sendable` snapshot of one completion, with its highlights. `highlightedTitle()` and `highlightedSubTitle()` color every highlight with SwiftUI colors, on iOS and macOS alike.
 - `Placemark`: a `Sendable` snapshot of an `MKMapItem`, so callers never hold MapKit types across isolation boundaries.
-- `HighlightRange`, `LocationSearchError`: supporting types.
+- `LocationSearchError`: the error MapKit failures arrive as.
 
 `TestApp/` is a demo app for trying the search by hand. It is not part of the package build.
 

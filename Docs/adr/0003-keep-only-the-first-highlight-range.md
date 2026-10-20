@@ -1,5 +1,7 @@
 # Keep only the first highlight range
 
+Superseded by ADR 0008: KLI-259 highlights every match.
+
 ## Context
 
 MapKit reports text matches as arrays of ranges: `titleHighlightRanges` and `subtitleHighlightRanges` on `MKLocalSearchCompletion`.

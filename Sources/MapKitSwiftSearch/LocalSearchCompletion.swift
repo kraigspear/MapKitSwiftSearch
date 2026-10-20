@@ -1,6 +1,9 @@
 import MapKit
 
-/// A `Sendable` snapshot of one MapKit search completion.
+/// A `Sendable` snapshot of one MapKit search completion: its title, its subtitle, and every
+/// highlight that matches the query fragment.
+///
+/// Two completions are equal when their title, subtitle, and highlights are.
 ///
 /// ```swift
 /// Text(completion.highlightedTitle())
@@ -16,13 +19,13 @@ public struct LocalSearchCompletion: Identifiable, Equatable, Sendable, Hashable
     /// The secondary text, such as an address or region.
     public let subTitle: String
 
-    /// The first range in ``title`` that MapKit matched to the query, if any.
-    ///
-    /// MapKit matches each word of a multi-word query separately; this keeps only its first match.
-    public let titleHighlightRange: HighlightRange?
+    /// Every part of ``title`` that matches a word of the query fragment, in the order MapKit reported
+    /// them. They can overlap.
+    let titleHighlights: [Range<String.Index>]
 
-    /// The first range in ``subTitle`` that MapKit matched to the query, if any.
-    public let subtitleHighlightRange: HighlightRange?
+    /// Every part of ``subTitle`` that matches a word of the query fragment, in the order MapKit
+    /// reported them. They can overlap.
+    let subtitleHighlights: [Range<String.Index>]
 
     /// The MapKit completion this snapshot was taken from, so ``LocationSearch/placemark(for:)``
     /// resolves exactly what the user tapped (Docs/adr/0007).
@@ -30,35 +33,66 @@ public struct LocalSearchCompletion: Identifiable, Equatable, Sendable, Hashable
 
     // MARK: - Initialization
 
-    /// Snapshots a MapKit completion, keeping the first highlight range per field (Docs/adr/0003).
+    /// Snapshots a MapKit completion, converting every highlight it reports (Docs/adr/0008).
     init(_ searchCompletion: MKLocalSearchCompletion) {
-        original = MapKitCompletionBox(completion: searchCompletion)
-        title = searchCompletion.title
-        subTitle = searchCompletion.subtitle
-        id = "\(title)-\(subTitle)"
-
-        titleHighlightRange = searchCompletion.titleHighlightRanges.first.map {
-            HighlightRange(nsValue: $0)
-        }
-
-        subtitleHighlightRange = searchCompletion.subtitleHighlightRanges.first.map {
-            HighlightRange(nsValue: $0)
-        }
+        let title = Self.nativeCopy(of: searchCompletion.title)
+        let subTitle = Self.nativeCopy(of: searchCompletion.subtitle)
+        self.init(
+            title: title,
+            subTitle: subTitle,
+            titleHighlights: Self.highlights(searchCompletion.titleHighlightRanges, in: title),
+            subtitleHighlights: Self.highlights(searchCompletion.subtitleHighlightRanges, in: subTitle),
+            original: searchCompletion,
+        )
     }
 
     /// Creates a completion with no MapKit completion behind it, which can't be resolved.
+    ///
+    /// A highlight that doesn't fit its text is ignored when the text is colored.
     init(
         title: String,
         subTitle: String,
-        titleHighlightRange: HighlightRange?,
-        subtitleHighlightRange: HighlightRange?,
+        titleHighlights: [Range<String.Index>] = [],
+        subtitleHighlights: [Range<String.Index>] = [],
     ) {
-        original = MapKitCompletionBox(completion: nil)
+        self.init(
+            title: title,
+            subTitle: subTitle,
+            titleHighlights: titleHighlights,
+            subtitleHighlights: subtitleHighlights,
+            original: nil,
+        )
+    }
+
+    private init(
+        title: String,
+        subTitle: String,
+        titleHighlights: [Range<String.Index>],
+        subtitleHighlights: [Range<String.Index>],
+        original: MKLocalSearchCompletion?,
+    ) {
+        self.original = MapKitCompletionBox(completion: original)
         self.title = title
         self.subTitle = subTitle
         id = "\(title)-\(subTitle)"
-        self.titleHighlightRange = titleHighlightRange
-        self.subtitleHighlightRange = subtitleHighlightRange
+        self.titleHighlights = titleHighlights
+        self.subtitleHighlights = subtitleHighlights
+    }
+
+    /// Converts MapKit's UTF-16 ranges to ranges of `text`, dropping any that don't fit it.
+    private static func highlights(_ ranges: [NSValue], in text: String) -> [Range<String.Index>] {
+        ranges.compactMap { Range($0.rangeValue, in: text) }
+    }
+
+    /// A copy of `text` in native UTF-8 storage.
+    ///
+    /// MapKit's strings are bridged `NSString`s, which Swift indexes in UTF-16. Indices into a native
+    /// copy are UTF-8 offsets, like those of any Swift string, so a snapshot's highlights compare and
+    /// hash the same as equal highlights built from a Swift string.
+    private static func nativeCopy(of text: String) -> String {
+        var native = text
+        native.makeContiguousUTF8()
+        return native
     }
 
     // MARK: - MapKit Completion
