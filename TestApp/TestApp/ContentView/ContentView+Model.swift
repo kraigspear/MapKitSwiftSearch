@@ -74,10 +74,9 @@ extension ContentView {
         private func fetchPlacemark(for completion: LocalSearchCompletion) {
             Task {
                 do {
-                    selectedPlacemark = try await locationSearch.placemark(for: completion)
-                    if let selectedPlacemark {
-                        mapCameraPosition = selectedPlacemark.mapCameraPosition()
-                    }
+                    let placemark = try await locationSearch.placemark(for: completion)
+                    selectedPlacemark = placemark
+                    mapCameraPosition = placemark.mapCameraPosition()
                 } catch {
                     logger.error("Error fetching placemark: \(error)")
                     selectedPlacemark = nil

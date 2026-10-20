@@ -3,21 +3,19 @@ import Observation
 import os
 import Synchronization
 
-/// An error that ``LocationSearch`` throws.
+/// An error that ``LocationSearch`` throws when MapKit fails.
 ///
-/// A superseded search throws `CancellationError`, not a case of this enum.
+/// Both ``LocationSearch/search(queryFragment:)`` and ``LocationSearch/placemark(for:)`` wrap
+/// an `MKError` in ``mapKitError(_:)``. They throw `CancellationError` when superseded or
+/// cancelled, and any other error MapKit reports unchanged, so neither is a case of this enum.
 public enum LocationSearchError: LocalizedError, Equatable {
-    /// A placemark search returned no map item.
-    case searchCompletionFailed
-
     /// MapKit failed with an `MKError`, such as `.loadingThrottled` when the search
-    /// completer has had too many requests.
+    /// completer has had too many requests, or `.placemarkNotFound` when a completion
+    /// resolves to no place.
     case mapKitError(MKError)
 
     public var errorDescription: String? {
         switch self {
-        case .searchCompletionFailed:
-            "Unable to complete location search"
         case let .mapKitError(mkError):
             "MapKit error: \(mkError)"
         }
@@ -137,8 +135,8 @@ private let logger = LogContext.locationSearch.logger()
 /// ```swift
 /// let locationSearch = LocationSearch()
 /// let completions = try await locationSearch.search(queryFragment: "Apple Park")
-/// if let first = completions.first,
-///    let placemark = try await locationSearch.placemark(for: first) {
+/// if let first = completions.first {
+///     let placemark = try await locationSearch.placemark(for: first)
 ///     print(placemark.name ?? "", placemark.coordinate)
 /// }
 /// ```
@@ -263,15 +261,14 @@ public final class LocationSearch {
     /// wants only the latest tap cancels the earlier call's task.
     ///
     /// - Parameter searchCompletion: A completion from ``search(queryFragment:)``.
-    /// - Returns: The placemark for MapKit's first map item. Currently never `nil`: when MapKit
-    ///   finds none, this throws ``LocationSearchError/searchCompletionFailed``.
+    /// - Returns: The placemark for MapKit's first map item.
     /// - Throws:
     ///   - `CancellationError` if the calling task is cancelled, which also cancels the MapKit search.
-    ///   - ``LocationSearchError/mapKitError(_:)`` if MapKit fails with an `MKError`, or with
-    ///     `.placemarkNotFound` for a completion that didn't come from ``search(queryFragment:)``.
-    ///   - ``LocationSearchError/searchCompletionFailed`` if MapKit returns no map item.
+    ///   - ``LocationSearchError/mapKitError(_:)`` if MapKit fails with an `MKError`. MapKit fails
+    ///     with `.placemarkNotFound` when it finds no place, and this throws the same for a completion
+    ///     that didn't come from ``search(queryFragment:)``.
     ///   - Any other error MapKit reports, unchanged.
-    public func placemark(for searchCompletion: LocalSearchCompletion) async throws -> Placemark? {
+    public func placemark(for searchCompletion: LocalSearchCompletion) async throws -> Placemark {
         try Task.checkCancellation()
         guard let mapKitCompletion = searchCompletion.mapKitCompletion else {
             logger.error("No MapKit completion to resolve for: \(searchCompletion)")
@@ -291,9 +288,10 @@ public final class LocationSearch {
         // MapKit can answer before the cancel reaches it, so a cancelled call can still have map items
         try Task.checkCancellation()
         do {
+            // MapKit fails with placemarkNotFound rather than returning no map item; kept as a defensive check
             guard let mapItem = try result.get().first else {
                 logger.error("No map item found for: \(searchCompletion)")
-                throw LocationSearchError.searchCompletionFailed
+                throw MKError(.placemarkNotFound)
             }
             return Placemark(mapItem: mapItem)
         } catch let mkError as MKError {
