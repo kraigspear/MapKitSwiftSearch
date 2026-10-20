@@ -34,8 +34,18 @@ protocol LocalSearchCompleterProtocol {
     func completions(for queryFragment: String) async throws -> [LocalSearchCompletion]
 }
 
-protocol LocalSearchProtocol: AnyObject {
-    func start(completionHandler: @escaping @Sendable (MKLocalSearch.Response?, Error?) -> Void)
+/// One MapKit search that resolves a completion: the completion in, its map items out.
+///
+/// It returns map items rather than `MKLocalSearch.Response`, which tests can't build.
+@MainActor
+protocol LocalSearchProtocol: Sendable {
+    /// Returns MapKit's map items for the completion this search was made for.
+    ///
+    /// - Throws: MapKit's error, including the one it reports after ``cancel()``.
+    func start() async throws -> [MKMapItem]
+
+    /// Stops the search, so ``start()`` ends early.
+    func cancel()
 }
 
 /// Bridges one `MKLocalSearchCompleter` search to async.
@@ -96,15 +106,21 @@ extension MKLocalSearchCompleterAdapter: MKLocalSearchCompleterDelegate {
     }
 }
 
-private final class MKLocalSearchAdapter: LocalSearchProtocol {
+/// Resolves a completion through `MKLocalSearch`.
+@MainActor
+final class MKLocalSearchAdapter: LocalSearchProtocol {
     private let search: MKLocalSearch
 
-    init(search: MKLocalSearch) {
-        self.search = search
+    init(completion: MKLocalSearchCompletion) {
+        search = MKLocalSearch(request: MKLocalSearch.Request(completion: completion))
     }
 
-    func start(completionHandler: @escaping @Sendable (MKLocalSearch.Response?, Error?) -> Void) {
-        search.start(completionHandler: completionHandler)
+    func start() async throws -> [MKMapItem] {
+        try await search.start().mapItems
+    }
+
+    func cancel() {
+        search.cancel()
     }
 }
 
@@ -141,7 +157,7 @@ public final class LocationSearch {
     private var currentSearch: SearchTask?
 
     private let completerFactory: () -> any LocalSearchCompleterProtocol
-    private let localSearchFactory: (LocalSearchCompletion) -> LocalSearchProtocol
+    private let localSearchFactory: (MKLocalSearchCompletion) -> any LocalSearchProtocol
 
     /// Injected so tests control when a debounce ends relative to MapKit's results.
     private let debounceSleep: (Duration) async throws -> Void
@@ -161,9 +177,7 @@ public final class LocationSearch {
             numberOfCharactersBeforeSearching: numberOfCharactersBeforeSearching,
             debounceSearchDelay: debounceSearchDelay,
             completerFactory: { MKLocalSearchCompleterAdapter() },
-            localSearchFactory: { completion in
-                MKLocalSearchAdapter(search: completion.localSearch())
-            },
+            localSearchFactory: { MKLocalSearchAdapter(completion: $0) },
         )
     }
 
@@ -172,7 +186,7 @@ public final class LocationSearch {
         numberOfCharactersBeforeSearching: Int,
         debounceSearchDelay: Duration,
         completerFactory: @escaping () -> any LocalSearchCompleterProtocol,
-        localSearchFactory: @escaping (LocalSearchCompletion) -> LocalSearchProtocol,
+        localSearchFactory: @escaping (MKLocalSearchCompletion) -> any LocalSearchProtocol,
         debounceSleep: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
     ) {
         self.numberOfCharactersBeforeSearching = numberOfCharactersBeforeSearching
@@ -243,46 +257,48 @@ public final class LocationSearch {
 
     /// Resolves a search completion to a placemark.
     ///
-    /// Runs a new MapKit search for the completion's title and subtitle, so the result is
-    /// MapKit's first match for that text. Cancelling the calling task doesn't cancel the search.
+    /// Hands MapKit the completion it suggested, so the placemark is the place the user tapped,
+    /// including a "Search Nearby" category completion, which resolves to a nearby branch.
+    /// Calls don't supersede each other: each resolves its own completion, so a caller that
+    /// wants only the latest tap cancels the earlier call's task.
     ///
     /// - Parameter searchCompletion: A completion from ``search(queryFragment:)``.
-    /// - Returns: The placemark for MapKit's first match. Currently never `nil`: when MapKit
-    ///   finds no match, this throws ``LocationSearchError/searchCompletionFailed``.
+    /// - Returns: The placemark for MapKit's first map item. Currently never `nil`: when MapKit
+    ///   finds none, this throws ``LocationSearchError/searchCompletionFailed``.
     /// - Throws:
-    ///   - ``LocationSearchError/mapKitError(_:)`` if MapKit fails with an `MKError`.
+    ///   - `CancellationError` if the calling task is cancelled, which also cancels the MapKit search.
+    ///   - ``LocationSearchError/mapKitError(_:)`` if MapKit fails with an `MKError`, or with
+    ///     `.placemarkNotFound` for a completion that didn't come from ``search(queryFragment:)``.
     ///   - ``LocationSearchError/searchCompletionFailed`` if MapKit returns no map item.
     ///   - Any other error MapKit reports, unchanged.
     public func placemark(for searchCompletion: LocalSearchCompletion) async throws -> Placemark? {
-        try await withCheckedThrowingContinuation { continuation in
-            let localSearch = localSearchFactory(searchCompletion)
+        try Task.checkCancellation()
+        guard let mapKitCompletion = searchCompletion.mapKitCompletion else {
+            logger.error("No MapKit completion to resolve for: \(searchCompletion)")
+            throw LocationSearchError.mapKitError(MKError(.placemarkNotFound))
+        }
 
-            localSearch.start { response, error in
-                if let error {
-                    if let mkError = error as? MKError {
-                        logger.error("MapKit error during placemark search: \(mkError)")
-                        continuation.resume(throwing: LocationSearchError.mapKitError(mkError))
-                    } else {
-                        logger.error("Unexpected error during placemark search: \(error)")
-                        continuation.resume(throwing: error)
-                    }
-                    return
-                }
-                // MapKit guarantees either error or response will be non-nil
-                guard let response else {
-                    logger.error("MapKit returned neither error nor response for: \(searchCompletion)")
-                    continuation.resume(throwing: LocationSearchError.searchCompletionFailed)
-                    return
-                }
-
-                guard let mapItem = response.mapItems.first else {
-                    logger.error("No map item found in search response for: \(searchCompletion)")
-                    continuation.resume(throwing: LocationSearchError.searchCompletionFailed)
-                    return
-                }
-
-                continuation.resume(returning: Placemark(mapItem: mapItem))
+        let localSearch = localSearchFactory(mapKitCompletion)
+        let result = await withTaskCancellationHandler {
+            await Result { try await localSearch.start() }
+        } onCancel: {
+            // onCancel can run on any thread, and the search belongs to the main actor
+            Task { @MainActor in
+                localSearch.cancel()
             }
+        }
+
+        // MapKit can answer before the cancel reaches it, so a cancelled call can still have map items
+        try Task.checkCancellation()
+        do {
+            guard let mapItem = try result.get().first else {
+                logger.error("No map item found for: \(searchCompletion)")
+                throw LocationSearchError.searchCompletionFailed
+            }
+            return Placemark(mapItem: mapItem)
+        } catch let mkError as MKError {
+            logger.error("MapKit error during placemark search: \(mkError)")
+            throw LocationSearchError.mapKitError(mkError)
         }
     }
 
@@ -310,18 +326,5 @@ public final class LocationSearch {
             logger.error("MapKit search completer failed for \(queryFragment): \(error)")
             throw error
         }
-    }
-}
-
-// MARK: - Private Extensions
-
-private extension LocalSearchCompletion {
-    /// A text search for this completion's title and subtitle.
-    ///
-    /// The snapshot no longer holds MapKit's completion to search with (Docs/adr/0002).
-    func localSearch() -> MKLocalSearch {
-        let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = "\(title) \(subTitle)".trimmingCharacters(in: .whitespaces)
-        return .init(request: request)
     }
 }

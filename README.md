@@ -8,7 +8,7 @@ Async/await location search for iOS and macOS, built on MapKit's `MKLocalSearchC
 
 ## Overview
 
-MapKit's search completer reports results through a delegate, which makes search-as-you-type awkward to write with Swift concurrency. MapKitSwiftSearch wraps it in two async calls: `search(queryFragment:)` returns completions as the user types, and `placemark(for:)` resolves one completion to a coordinate and address. Results are `Sendable` value types, so they cross isolation boundaries without carrying MapKit objects.
+MapKit's search completer reports results through a delegate, which makes search-as-you-type awkward to write with Swift concurrency. MapKitSwiftSearch wraps it in two async calls: `search(queryFragment:)` returns completions as the user types, and `placemark(for:)` resolves one completion to a coordinate and address. Results are `Sendable` value types that don't expose MapKit objects, so they cross isolation boundaries.
 
 ## Requirements
 

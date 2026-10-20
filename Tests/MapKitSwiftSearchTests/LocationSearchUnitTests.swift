@@ -64,11 +64,35 @@ struct LocationSearchUnitTests {
         }
     }
 
+    /// Resolves a MapKit completion when the test says so, and records what it was asked to resolve
+    /// and each cancel.
+    ///
+    /// Like MapKit's search, it ignores the task's cancellation and ends only when answered.
+    @MainActor
     final class FakeLocalSearch: LocalSearchProtocol {
-        var onStart: ((@escaping @Sendable (MKLocalSearch.Response?, Error?) -> Void) -> Void)?
+        private(set) var resolvedCompletions: [MKLocalSearchCompletion] = []
+        private(set) var cancellationCount = 0
+        private var answer: CheckedContinuation<[MKMapItem], Error>?
 
-        func start(completionHandler: @escaping @Sendable (MKLocalSearch.Response?, Error?) -> Void) {
-            onStart?(completionHandler)
+        func makeSearch(for completion: MKLocalSearchCompletion) -> any LocalSearchProtocol {
+            resolvedCompletions.append(completion)
+            return self
+        }
+
+        func start() async throws -> [MKMapItem] {
+            try await withCheckedThrowingContinuation { answer = $0 }
+        }
+
+        func cancel() {
+            cancellationCount += 1
+        }
+
+        func sendMapItems(_ mapItems: sending [MKMapItem]) {
+            answer.take()?.resume(returning: mapItems)
+        }
+
+        func sendError(_ error: Error) {
+            answer.take()?.resume(throwing: error)
         }
     }
 
@@ -101,18 +125,24 @@ struct LocationSearchUnitTests {
         subtitleHighlightRange: nil,
     )
 
+    static let pizzaCompletion = LocalSearchCompletion(
+        StubMapKitCompletion(title: "Pizza Restaurants", subtitle: "Search Nearby"),
+    )
+
     let fakeCompleter = FakeSearchCompleter()
     let fakeDebounce = FakeDebounce()
+    let fakeLocalSearch = FakeLocalSearch()
 
-    /// A search over the fake completer whose debounce ends at once, or only when released.
+    /// A search over the fakes whose debounce ends at once, or only when released.
     func makeLocationSearch(heldDebounce: Bool = false) -> LocationSearch {
         let fakeCompleter = fakeCompleter
         let fakeDebounce = fakeDebounce
+        let fakeLocalSearch = fakeLocalSearch
         return LocationSearch(
             numberOfCharactersBeforeSearching: 5,
             debounceSearchDelay: .milliseconds(300),
             completerFactory: { fakeCompleter },
-            localSearchFactory: { _ in FakeLocalSearch() },
+            localSearchFactory: { fakeLocalSearch.makeSearch(for: $0) },
             debounceSleep: heldDebounce ? { try await fakeDebounce.sleep($0) } : { _ in },
         )
     }
@@ -402,101 +432,189 @@ struct LocationSearchUnitTests {
 
     // MARK: - Placemark
 
+    /// Starts resolving the completion and returns once MapKit is searching for it.
+    func startInFlightPlacemark(
+        for completion: LocalSearchCompletion = Self.pizzaCompletion,
+        on locationSearch: LocationSearch,
+    ) async -> Task<Placemark?, Error> {
+        let resolveCount = fakeLocalSearch.resolvedCompletions.count
+        let placemark = Task { try await locationSearch.placemark(for: completion) }
+        await waitUntil { fakeLocalSearch.resolvedCompletions.count > resolveCount }
+        return placemark
+    }
+
+    /// Verifies a tapped "Search Nearby" completion resolves to the place MapKit suggested.
+    /// To replicate: type "Pizza" → tap "Pizza Restaurants, Search Nearby" → a nearby pizza place is selected.
     @Test
-    func `Placemark maps MKError to mapKitError`() async throws {
-        let fakeLocalSearch = FakeLocalSearch()
-        fakeLocalSearch.onStart = { completion in
-            completion(nil, MKError(.unknown))
+    func `Placemark resolves the MapKit completion the user tapped`() async throws {
+        // Given: A completion snapshot of a MapKit completion
+        let locationSearch = makeLocationSearch()
+        let original = try #require(Self.pizzaCompletion.mapKitCompletion)
+
+        // When: It is resolved and MapKit answers
+        let placemark = await startInFlightPlacemark(on: locationSearch)
+        fakeLocalSearch.sendMapItems([Self.pizzaPlaceMapItem()])
+
+        // Then: MapKit searched for that exact completion and its first map item is returned
+        _ = try await placemark.valueWithinTimeLimit
+        #expect(fakeLocalSearch.resolvedCompletions.count == 1)
+        #expect(fakeLocalSearch.resolvedCompletions.first === original)
+    }
+
+    @Test
+    func `Placemark maps the first map item's name, coordinate, addresses, and time zone`() async throws {
+        let locationSearch = makeLocationSearch()
+        let detroit = try #require(TimeZone(identifier: "America/Detroit"))
+        let placemark = await startInFlightPlacemark(on: locationSearch)
+
+        fakeLocalSearch.sendMapItems([Self.pizzaPlaceMapItem(), Self.otherPizzaPlaceMapItem()])
+
+        let resolved = try #require(try await placemark.valueWithinTimeLimit)
+        #expect(resolved.name == "Supino Pizzeria")
+        #expect(resolved.coordinate.latitude == 42.3363)
+        #expect(resolved.coordinate.longitude == -83.0410)
+        #expect(resolved.fullAddress == "2457 Russell St, Detroit, MI 48207, United States")
+        #expect(resolved.shortAddress == "2457 Russell St")
+        #expect(resolved.timeZone == detroit)
+    }
+
+    @Test
+    func `Placemark for a completion with no MapKit completion throws placemarkNotFound without searching`() async {
+        let locationSearch = makeLocationSearch()
+
+        await #expect(throws: LocationSearchError.mapKitError(MKError(.placemarkNotFound))) {
+            try await locationSearch.placemark(for: Self.coffeeShopCompletion)
         }
+        #expect(fakeLocalSearch.resolvedCompletions.isEmpty)
+    }
 
-        let locationSearch = LocationSearch(
-            numberOfCharactersBeforeSearching: 1,
-            debounceSearchDelay: .milliseconds(1),
-            completerFactory: { FakeSearchCompleter() },
-            localSearchFactory: { _ in fakeLocalSearch },
-        )
+    @Test
+    func `Placemark maps MKError to mapKitError`() async {
+        let locationSearch = makeLocationSearch()
+        let placemark = await startInFlightPlacemark(on: locationSearch)
 
-        let completion = LocalSearchCompletion(
-            title: "Coffee",
-            subTitle: "Roasters",
-            titleHighlightRange: nil,
-            subtitleHighlightRange: nil,
-        )
+        fakeLocalSearch.sendError(MKError(.serverFailure))
 
-        do {
-            _ = try await locationSearch.placemark(for: completion)
-            #expect(Bool(false), "Expected mapKitError")
-        } catch let error as LocationSearchError {
-            guard case .mapKitError = error else {
-                #expect(Bool(false), "Expected mapKitError")
-                return
-            }
+        await #expect(throws: LocationSearchError.mapKitError(MKError(.serverFailure))) {
+            try await placemark.valueWithinTimeLimit
         }
     }
 
     @Test
-    func `Placemark maps missing response to searchCompletionFailed`() async throws {
-        let fakeLocalSearch = FakeLocalSearch()
-        fakeLocalSearch.onStart = { completion in
-            completion(nil, nil)
+    func `Placemark throws an error that isn't an MKError unchanged`() async {
+        struct SearchFailure: Error, Equatable {}
+        let locationSearch = makeLocationSearch()
+        let placemark = await startInFlightPlacemark(on: locationSearch)
+
+        fakeLocalSearch.sendError(SearchFailure())
+
+        await #expect(throws: SearchFailure()) { try await placemark.valueWithinTimeLimit }
+    }
+
+    @Test
+    func `Placemark maps no map items to searchCompletionFailed`() async {
+        let locationSearch = makeLocationSearch()
+        let placemark = await startInFlightPlacemark(on: locationSearch)
+
+        fakeLocalSearch.sendMapItems([])
+
+        await #expect(throws: LocationSearchError.searchCompletionFailed) {
+            try await placemark.valueWithinTimeLimit
         }
+    }
 
+    /// Verifies leaving the location screen stops resolving the tapped place.
+    /// To replicate: tap a completion → leave the screen before the place loads → no place is selected.
+    @Test(arguments: MapKitResolveAnswer.allCases)
+    func `Cancelling the caller's task cancels the MapKit search and ends with CancellationError`(
+        mapKitAnswer: MapKitResolveAnswer,
+    ) async {
+        // Given: A placemark waiting on MapKit
+        let locationSearch = makeLocationSearch()
+        let placemark = await startInFlightPlacemark(on: locationSearch)
+
+        // When: The caller's task is cancelled, and MapKit then answers
+        placemark.cancel()
+        await waitUntil { fakeLocalSearch.cancellationCount == 1 }
+        mapKitAnswer.deliver(to: fakeLocalSearch)
+
+        // Then: The call ends with CancellationError whatever MapKit answered
+        await #expect(throws: CancellationError.self) { try await placemark.valueWithinTimeLimit }
+    }
+
+    @Test
+    func `Placemark from an already cancelled task never searches`() async {
+        let locationSearch = makeLocationSearch()
+
+        // The task can't start before the test's main-actor turn ends, so it is cancelled first
+        let placemark = Task { try await locationSearch.placemark(for: Self.pizzaCompletion) }
+        placemark.cancel()
+
+        await #expect(throws: CancellationError.self) { try await placemark.valueWithinTimeLimit }
+        #expect(fakeLocalSearch.resolvedCompletions.isEmpty)
+    }
+
+    @Test
+    func `Concurrent placemark calls don't supersede each other`() async throws {
+        // Given: Two placemarks waiting on MapKit, each with its own search
+        let firstSearch = FakeLocalSearch()
+        let secondSearch = FakeLocalSearch()
+        var searches = [firstSearch, secondSearch]
         let locationSearch = LocationSearch(
-            numberOfCharactersBeforeSearching: 1,
-            debounceSearchDelay: .milliseconds(1),
+            numberOfCharactersBeforeSearching: 5,
+            debounceSearchDelay: .milliseconds(300),
             completerFactory: { FakeSearchCompleter() },
-            localSearchFactory: { _ in fakeLocalSearch },
+            localSearchFactory: { searches.removeFirst().makeSearch(for: $0) },
         )
+        let first = Task { try await locationSearch.placemark(for: Self.pizzaCompletion) }
+        await waitUntil { firstSearch.resolvedCompletions.count == 1 }
+        let second = Task { try await locationSearch.placemark(for: Self.pizzaCompletion) }
+        await waitUntil { secondSearch.resolvedCompletions.count == 1 }
 
-        let completion = LocalSearchCompletion(
-            title: "Coffee",
-            subTitle: "Roasters",
-            titleHighlightRange: nil,
-            subtitleHighlightRange: nil,
-        )
+        // When: MapKit answers both
+        secondSearch.sendMapItems([Self.otherPizzaPlaceMapItem()])
+        firstSearch.sendMapItems([Self.pizzaPlaceMapItem()])
 
-        do {
-            _ = try await locationSearch.placemark(for: completion)
-            #expect(Bool(false), "Expected searchCompletionFailed")
-        } catch let error as LocationSearchError {
-            guard case .searchCompletionFailed = error else {
-                #expect(Bool(false), "Expected searchCompletionFailed")
-                return
+        // Then: Each call returns its own answer and neither search was cancelled
+        #expect(try await first.valueWithinTimeLimit?.name == "Supino Pizzeria")
+        #expect(try await second.valueWithinTimeLimit?.name == "Buddy's Pizza")
+        #expect(firstSearch.cancellationCount == 0)
+        #expect(secondSearch.cancellationCount == 0)
+    }
+
+    /// How MapKit answers a search the caller cancelled.
+    enum MapKitResolveAnswer: CaseIterable {
+        case mapItems
+        case failure
+
+        @MainActor
+        func deliver(to localSearch: FakeLocalSearch) {
+            switch self {
+            case .mapItems:
+                localSearch.sendMapItems([LocationSearchUnitTests.pizzaPlaceMapItem()])
+            case .failure:
+                localSearch.sendError(MKError(.unknown))
             }
         }
     }
 
-    @Test
-    func `Placemark maps empty map items to searchCompletionFailed`() async throws {
-        let fakeLocalSearch = FakeLocalSearch()
-        fakeLocalSearch.onStart = { completion in
-            let response = MKLocalSearch.Response()
-            completion(response, nil)
-        }
-
-        let locationSearch = LocationSearch(
-            numberOfCharactersBeforeSearching: 1,
-            debounceSearchDelay: .milliseconds(1),
-            completerFactory: { FakeSearchCompleter() },
-            localSearchFactory: { _ in fakeLocalSearch },
+    static func pizzaPlaceMapItem() -> MKMapItem {
+        let mapItem = MKMapItem(
+            location: CLLocation(latitude: 42.3363, longitude: -83.0410),
+            address: MKAddress(
+                fullAddress: "2457 Russell St, Detroit, MI 48207, United States",
+                shortAddress: "2457 Russell St",
+            ),
         )
+        mapItem.name = "Supino Pizzeria"
+        mapItem.timeZone = TimeZone(identifier: "America/Detroit")
+        return mapItem
+    }
 
-        let completion = LocalSearchCompletion(
-            title: "Coffee",
-            subTitle: "Roasters",
-            titleHighlightRange: nil,
-            subtitleHighlightRange: nil,
-        )
-
-        do {
-            _ = try await locationSearch.placemark(for: completion)
-            #expect(Bool(false), "Expected searchCompletionFailed")
-        } catch let error as LocationSearchError {
-            guard case .searchCompletionFailed = error else {
-                #expect(Bool(false), "Expected searchCompletionFailed")
-                return
-            }
-        }
+    static func otherPizzaPlaceMapItem() -> MKMapItem {
+        let mapItem = MKMapItem(location: CLLocation(latitude: 42.4106, longitude: -83.0331), address: nil)
+        mapItem.name = "Buddy's Pizza"
+        return mapItem
     }
 }
 

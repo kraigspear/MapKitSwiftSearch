@@ -1,3 +1,4 @@
+import MapKit
 import Testing
 @testable import MapKitSwiftSearch
 
@@ -34,6 +35,40 @@ struct LocationSearchTest {
             #expect(placemark != nil, "Expected selection")
 
             #expect(placemark?.name == "Caledonia", "Expected selection title")
+        }
+
+        /// A "Search Nearby" completion is the case a text search for its title and subtitle got
+        /// wrong: it failed, or found a place on another continent.
+        ///
+        /// The completer returns only query completions, the "Search Nearby" kind, so the test never
+        /// matches localized text. The reference is MapKit resolving the same completion directly,
+        /// so the test holds wherever MapKit places the machine running it.
+        @Test
+        func `Fetch the place MapKit suggested for a Search Nearby completion`() async throws {
+            let locationSearch = LocationSearch(
+                numberOfCharactersBeforeSearching: 5,
+                debounceSearchDelay: .zero,
+                completerFactory: {
+                    let completer = MKLocalSearchCompleter()
+                    completer.resultTypes = .query
+                    return MKLocalSearchCompleterAdapter(completer: completer)
+                },
+                localSearchFactory: { MKLocalSearchAdapter(completion: $0) },
+            )
+            let localSearchCompletions = try await locationSearch.search(queryFragment: "Pizza Restaurants")
+            let searchNearby = try #require(localSearchCompletions.first, "Expected a query completion")
+            let mapKitCompletion = try #require(searchNearby.mapKitCompletion)
+            let suggestedSearch = MKLocalSearch(request: MKLocalSearch.Request(completion: mapKitCompletion))
+            let suggested = try #require(try await suggestedSearch.start().mapItems.first)
+
+            let placemark = try #require(try await locationSearch.placemark(for: searchNearby))
+
+            let distance = CLLocation(
+                latitude: placemark.coordinate.latitude,
+                longitude: placemark.coordinate.longitude,
+            )
+            .distance(from: suggested.location)
+            #expect(distance < 1000, "\(placemark) is \(Int(distance)) m from MapKit's suggestion \(suggested)")
         }
     }
 }
