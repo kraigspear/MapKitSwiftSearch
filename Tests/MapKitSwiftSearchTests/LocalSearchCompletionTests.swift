@@ -1,4 +1,5 @@
 import Foundation
+import MapKit
 import Testing
 @testable import MapKitSwiftSearch
 
@@ -55,6 +56,54 @@ struct LocalSearchCompletionTests {
 
         let set = Set([first, second, third])
         #expect(set.count == 2)
+    }
+
+    @Test
+    func `A completion snapshot keeps the MapKit completion it was taken from`() {
+        let original = StubMapKitCompletion(title: "Pizza Restaurants", subtitle: "Search Nearby")
+
+        let completion = LocalSearchCompletion(original)
+
+        #expect(completion.mapKitCompletion === original)
+        #expect(completion.title == "Pizza Restaurants")
+        #expect(completion.subTitle == "Search Nearby")
+    }
+
+    @Test
+    func `Completions with the same fields but different MapKit completions are equal and hash the same`() {
+        let first = LocalSearchCompletion(StubMapKitCompletion(title: "Cafe", subtitle: "123 Main Street"))
+        let second = LocalSearchCompletion(StubMapKitCompletion(title: "Cafe", subtitle: "123 Main Street"))
+
+        #expect(first.mapKitCompletion !== second.mapKitCompletion)
+        #expect(first == second)
+        #expect(first.hashValue == second.hashValue)
+        #expect(first.id == second.id)
+    }
+
+    @Test
+    func `A completion with a MapKit completion equals one built from the same fields without one`() {
+        let fromMapKit = LocalSearchCompletion(StubMapKitCompletion(title: "Cafe", subtitle: "123 Main Street"))
+        let fromFields = LocalSearchCompletion(
+            title: "Cafe",
+            subTitle: "123 Main Street",
+            titleHighlightRange: nil,
+            subtitleHighlightRange: nil,
+        )
+
+        #expect(fromMapKit == fromFields)
+        #expect(fromMapKit.hashValue == fromFields.hashValue)
+    }
+
+    @Test
+    func `A completion built from its fields has no MapKit completion`() {
+        let completion = LocalSearchCompletion(
+            title: "Cafe",
+            subTitle: "123 Main Street",
+            titleHighlightRange: nil,
+            subtitleHighlightRange: nil,
+        )
+
+        #expect(completion.mapKitCompletion == nil)
     }
 
     @Test
